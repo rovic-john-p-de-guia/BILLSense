@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
   import ExchangeRateWidget from '$lib/components/ExchangeRateWidget.svelte';
+  import SecurityFeaturesWidget from '$lib/components/SecurityFeaturesWidget.svelte';
+  import TextToSpeechButton from '$lib/components/TextToSpeechButton.svelte';
+  import SettingsModal from '$lib/components/SettingsModal.svelte';
 
   let cameraFeed: HTMLVideoElement | null = null;
   let canvas: HTMLCanvasElement | null = null;
@@ -41,6 +44,12 @@
   // Add fullscreen image viewer state
   let isFullscreen: boolean = false;
 
+  // New variable for auto-announcing bill details
+  let autoAnnounce: boolean = false;
+  
+  // Settings modal state
+  let showSettings = false;
+  
   function handleImageZoom(factor: number): void {
     imageZoom = Math.max(0.5, Math.min(2.5, imageZoom * factor));
   }
@@ -728,6 +737,14 @@
   // Helper function to get security features for the detected currency
   function getSecurityFeatures(currency: string): string[] {
     const features: Record<string, string[]> = {
+      "PHP (Philippine Peso)": [
+        "Watermark",
+        "Security thread",
+        "Serial number",
+        "Optically variable device (OVD)",
+        "Material: Standard paper (older bills) or Polymer (new bills)",
+        "Tactile marks for visually impaired"
+      ],
       "USD (US Dollar)": [
         "Watermark", 
         "Security thread", 
@@ -766,7 +783,7 @@
       ]
     };
     
-    return features[currency] || ["Watermark", "Security printing", "Special paper"];
+    return features[currency] || ["Watermark", "Security printing", "Special paper (paper or polymer)"];
   }
 
   // Add a simple camera test function like the HTML example
@@ -870,11 +887,23 @@
       resetImageTransforms();
     }
   }
+
+  // Function to open settings modal
+  function openSettings(event: Event): void {
+    event.preventDefault();
+    showSettings = true;
+  }
 </script>
 
 <svelte:head>
   <title>Money Scanner</title>
 </svelte:head>
+
+<!-- Add the settings modal component -->
+<SettingsModal 
+  bind:show={showSettings}
+  bind:autoAnnounce={autoAnnounce}
+/>
 
 <div class="container">
   <!-- Decorative background elements -->
@@ -901,7 +930,7 @@
           <li><a href="#currencies">Currencies</a></li>
           <li><a href="#history">History</a></li>
           <li><a href="#help">Help</a></li>
-          <li><a href="#settings">Settings</a></li>
+          <li><a href="#settings" on:click={openSettings}>Settings</a></li>
         </ul>
       </nav>
       <button class="mobile-menu-toggle" on:click={toggleMobileMenu} aria-label="Toggle menu" aria-expanded={mobileMenuOpen}>
@@ -943,7 +972,7 @@
         <li><a href="#currencies">Currencies</a></li>
         <li><a href="#history">History</a></li>
         <li><a href="#help">Help</a></li>
-        <li><a href="#settings">Settings</a></li>
+        <li><a href="#settings" on:click={openSettings}>Settings</a></li>
       </ul>
     </div>
   {/if}
@@ -1343,19 +1372,31 @@
             </div>
             
             <div class="results-details">
-              <div class="result-panel">
-                <div class="result-icon">💰</div>
-                <h3>Currency Type</h3>
-                <div class="result-value">
-                  {currencyValue}
+              <div class="result-display">
+                <div class="result-panel">
+                  <div class="result-icon">💵</div>
+                  <h3>Bill Value</h3>
+                  <div class="result-value">{billAmount}</div>
                 </div>
-              </div>
-              
-              <div class="result-panel">
-                <div class="result-icon">💵</div>
-                <h3>Amount</h3>
-                <div class="result-value">
-                  {billAmount}
+                
+                <div class="result-panel">
+                  <div class="result-icon">🏛️</div>
+                  <h3>Currency</h3>
+                  <div class="result-value">{currencyValue}</div>
+                </div>
+                
+                <!-- Add a speak button for accessibility -->
+                <div class="result-panel speak-panel">
+                  <div class="result-icon">🔊</div>
+                  <h3>Voice Announcement</h3>
+                  <div class="result-value">
+                    <TextToSpeechButton 
+                      amount={billAmount}
+                      currency={getCurrencyCode(currencyValue)}
+                      extraInfo={`Issued by ${getIssuingAuthority(currencyValue)}`}
+                      iconOnly={false}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1363,7 +1404,17 @@
           
           <!-- Enhanced currency information -->
           <div class="currency-details">
-            <h3 class="details-header">Currency Information</h3>
+            <h3 class="details-header">
+              Currency Information
+              <span class="accessibility-controls">
+                <TextToSpeechButton 
+                  amount={billAmount}
+                  currency={getCurrencyCode(currencyValue)}
+                  extraInfo={`Issued by ${getIssuingAuthority(currencyValue)}`}
+                  iconOnly={true}
+                />
+              </span>
+            </h3>
             
             <div class="details-grid">
               <div class="detail-item">
@@ -1399,11 +1450,10 @@
                 <div class="detail-icon">🔍</div>
                 <div class="detail-content">
                   <h4>Security Features</h4>
-                  <ul class="security-features">
-                    {#each getSecurityFeatures(currencyValue) as feature}
-                      <li>{feature}</li>
-                    {/each}
-                  </ul>
+                  <SecurityFeaturesWidget 
+                    features={getSecurityFeatures(currencyValue)} 
+                    currency={currencyValue}
+                  />
                 </div>
               </div>
             </div>
@@ -3112,6 +3162,34 @@
     .scanned-image {
       max-height: 220px;
     }
+  }
+
+  /* Add styles for accessibility controls */
+  .details-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .accessibility-controls {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* Speak panel styles */
+  .speak-panel {
+    background-color: #f0f9ff;
+    border-color: #bae6fd;
+  }
+  
+  .speak-panel .result-icon {
+    color: #0284c7;
+  }
+  
+  .speak-panel .result-value {
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
   }
 </style>
   
