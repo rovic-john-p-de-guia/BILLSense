@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { slide } from 'svelte/transition';
+  import ExchangeRateWidget from '$lib/components/ExchangeRateWidget.svelte';
 
   let cameraFeed: HTMLVideoElement | null = null;
   let canvas: HTMLCanvasElement | null = null;
@@ -839,8 +840,18 @@
 
   // Fix linter errors by safely handling the currency code extraction
   function getCurrencyCode(value: string): string {
-    const match = value.match(/\((.*?)\)/);
+    // Extract the currency code from format like "USD (US Dollar)"
+    const match = value.match(/\b([A-Z]{3})\b/);
     return match && match[1] ? match[1] : "Unknown";
+  }
+
+  // Get numeric amount from billAmount string
+  function getNumericAmount(amount: string): number {
+    if (amount === "Unknown") return 1;
+    
+    // Try to parse as a number
+    const parsed = parseFloat(amount);
+    return isNaN(parsed) ? 1 : parsed;
   }
 
   // Add keyboard support for the dropzone
@@ -1375,8 +1386,12 @@
                 <div class="detail-icon">💱</div>
                 <div class="detail-content">
                   <h4>Exchange Rate</h4>
-                  <p>1 {getCurrencyCode(currencyValue)} ≈ $1.00 USD</p>
-                  <span class="detail-note">Rates are approximate</span>
+                  <!-- Exchange rate widget with enhanced handling -->
+                  <ExchangeRateWidget 
+                    fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
+                    toCurrency="USD" 
+                    amount={getNumericAmount(billAmount)} 
+                  />
                 </div>
               </div>
               
