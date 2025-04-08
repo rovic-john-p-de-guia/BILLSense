@@ -15,7 +15,7 @@ export function speak(
   text: string, 
   lang = 'en-US', 
   rate = 1, 
-  pitch = 1, 
+  pitch = 2, 
   volume = 1
 ): Promise<void> {
   return new Promise((resolve, reject) => {

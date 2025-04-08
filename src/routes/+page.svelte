@@ -47,8 +47,35 @@
   // New variable for auto-announcing bill details
   let autoAnnounce: boolean = false;
   
+  // Add exchange rate target currency selection
+  let targetCurrency: string = "USD";
+  
+  // Common currencies for conversion
+  const commonCurrencies = [
+    { code: "USD", name: "US Dollar" },
+    { code: "EUR", name: "Euro" },
+    { code: "GBP", name: "British Pound" },
+    { code: "JPY", name: "Japanese Yen" },
+    { code: "CNY", name: "Chinese Yuan" },
+    { code: "CAD", name: "Canadian Dollar" },
+    { code: "AUD", name: "Australian Dollar" },
+    { code: "PHP", name: "Philippine Peso" }
+  ];
+  
   // Settings modal state
   let showSettings = false;
+  
+  // Updated function to go back to the method selector
+  let showMethodSelector = true; // Add this variable to track the method selector visibility
+  
+  // Add required file upload functions
+  function triggerFileUpload(): void {
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.click();
+    }
+  }
+
   
   function handleImageZoom(factor: number): void {
     imageZoom = Math.max(0.5, Math.min(2.5, imageZoom * factor));
@@ -127,7 +154,7 @@
                 currentImage = imageData;
                 await processImage(imageData);
               }
-              processing = false;
+              resetProcessingState();
             };
             reader.readAsDataURL(file);
           }
@@ -352,43 +379,41 @@
     }
   }
 
-  function toggleCamera(): void {
+  async function toggleCamera(): Promise<void> {
     if (showCamera) {
-      // Stop camera if it's already running
+      // Turn off camera
       if (stream) {
-        stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        stream.getTracks().forEach(track => track.stop());
         stream = null;
       }
-      // Clear any scanning intervals
-      if (scanningInterval) {
-        clearInterval(scanningInterval);
-        scanningInterval = null;
-      }
-      liveScanMode = false;
       showCamera = false;
-      cameraError = false; // Reset error state
+      cameraFeed = null;
     } else {
-      // Set UI state
-      showCamera = true;
-      processing = true;
-      cameraError = false;
-      
-      // Simple implementation matching the HTML example
+      // Turn on camera
       async function startCamera() {
         try {
-          // Basic camera access like in the HTML example
+          // Reset any previous camera errors
+          cameraError = false;
+          cameraErrorMessage = "";
+          processing = true;
+          
+          // Stop any existing stream
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+          }
+          
           stream = await navigator.mediaDevices.getUserMedia({ video: true });
           
           // Make sure cameraFeed is available (should be bound by Svelte)
           if (cameraFeed) {
             cameraFeed.srcObject = stream;
-            processing = false;
+            resetProcessingState();
           } else {
             throw new Error("Camera feed element not found");
           }
         } catch (error) {
           console.error("Error accessing camera:", error);
-          processing = false;
           cameraError = true;
           
           if (error instanceof Error) {
@@ -396,6 +421,7 @@
           } else {
             cameraErrorMessage = "Could not access the camera. Please check your permissions.";
           }
+          resetProcessingState();
         }
       }
       
@@ -431,7 +457,7 @@
     
     const context = canvas.getContext('2d');
     if (!context) {
-      processing = false;
+      resetProcessingState();
       return;
     }
     
@@ -467,7 +493,7 @@
       console.error("Live scan error:", error);
     }
     
-    processing = false;
+    resetProcessingState();
   }
 
   // Process image for live scanning without UI updates
@@ -544,10 +570,11 @@
     if (!cameraFeed || !canvas || processing) return;
     
     processing = true;
+    startProcessingAnimation();
     
     const context = canvas.getContext('2d');
     if (!context) {
-      processing = false;
+      resetProcessingState();
       return;
     }
     
@@ -559,7 +586,7 @@
     currentImage = imageData; // Store the captured image
     await processImage(imageData);
     
-    processing = false;
+    resetProcessingState();
   }
 
   async function handleFileUpload(event: Event): Promise<void> {
@@ -571,6 +598,7 @@
     const file = target.files[0];
     if (file) {
       processing = true;
+      startProcessingAnimation();
       uploadComplete = false;
       previewUrl = URL.createObjectURL(file);
       
@@ -587,7 +615,7 @@
             }
           }, 3000);
         }
-        processing = false;
+        resetProcessingState();
       };
       reader.readAsDataURL(file);
     }
@@ -628,19 +656,20 @@
     currencyValue = "Unknown";
     billAmount = "Unknown";
     extractedText = "No text detected";
+    targetCurrency = "USD"; // Reset target currency
     selectMethod(''); // Go back to method selection
   }
 
   // Update processImage to use the animation
   async function processImage(imageSrc: string): Promise<void> {
-    extractedText = "Processing...";
-    processing = true;
-    startProcessingAnimation();
-    
     try {
+      extractedText = "Processing...";
+      processing = true;
+      startProcessingAnimation();
+      
       if (!puterLoaded) {
         extractedText = "Puter.js is not loaded yet";
-        processing = false;
+        resetProcessingState();
         return;
       }
       
@@ -648,11 +677,12 @@
       const puter = (window as any).puter;
       if (!puter || !puter.ai || !puter.ai.img2txt) {
         extractedText = "Puter.js API is not available";
-        processing = false;
+        resetProcessingState();
         return;
       }
       
       const result = await puter.ai.img2txt(imageSrc);
+      console.log("Extracted text from image:", result);
       extractedText = result || "No text found";
       detectCurrencyAndAmount(extractedText);
     } catch (error: unknown) {
@@ -663,22 +693,29 @@
       }
     } finally {
       // Stop loading animation
-      if (processingInterval) {
-        clearInterval(processingInterval);
-        processingInterval = null;
-      }
-      processing = false;
+      resetProcessingState();
     }
+  }
+
+  function resetProcessingState(): void {
+    processing = false;
+    if (processingInterval) {
+      clearInterval(processingInterval);
+      processingInterval = null;
+    }
+    processingProgress = 0;
   }
 
   function detectCurrencyAndAmount(text: string): void {
     let currency = "Unknown";
     let amount = "Unknown";
 
+    console.log("Starting currency detection for text:", text);
+    
     // Currency detection
     const currencyPatterns: Record<string, RegExp> = {
-      "USD (US Dollar)": /DOLLARS|UNITED STATES OF AMERICA|FEDERAL RESERVE NOTE/i,
-      "PHP (Philippine Peso)": /PISO|BANGKO SENTRAL NG PILIPINAS|PILIPINAS/i,
+      "USD (US Dollar)": /DOLLARS|UNITED STATES OFAMERICA|FEDERAL RESERVE NOTE/i,
+      "PHP (Philippine Peso)": /PISO|PILIPINAS|BANGKO SENTRAL|REPUBLIKA NG|SANLI(B|L)IB(S|G)|PHILIPPINES/i,
       "EUR (Euro)": /EURO|ECB|BCE/i,
       "GBP (British Pound)": /POUNDS|BANK OF ENGLAND/i,
       "MXN (Mexican Peso)": /PESOS|BANCO DE MEXICO/i,
@@ -693,25 +730,92 @@
 
     for (const [curr, pattern] of Object.entries(currencyPatterns)) {
       if (pattern.test(text)) {
+        console.log(`Matched currency pattern for: ${curr}`);
         currency = curr;
         break;
       }
     }
+    
+    // Special case for Philippine Peso detection - Look for visual clues in the text
+    if (currency === "Unknown" && (
+        text.includes("REPUBLIKA") || 
+        text.includes("NG PILIPINAS") || 
+        text.includes("PILIPINO") ||
+        text.includes("SANDAAN") ||
+        text.includes("LIBO") ||
+        text.includes("KH") || // Serial number prefix on PHP bills
+        text.includes("SANLIBONG PISO") // Specifically for 1000 peso bill
+    )) {
+      console.log("Detected Philippine Peso through special case patterns");
+      currency = "PHP (Philippine Peso)";
+    }
 
     // Amount detection
     const amountMatches = text.match(/\b\d{1,4}\b/g); // Extract possible numbers
+    console.log("Possible amounts found:", amountMatches);
+    
     if (amountMatches) {
       const knownDenominations = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+      
+      // First pass: Look for exact matches with known denominations
       for (const num of amountMatches.map(Number)) {
         if (knownDenominations.includes(num)) {
+          console.log(`Found matching denomination: ${num}`);
           amount = num.toString();
           break;
+        }
+      }
+      
+      // Second pass: If no match, try to find numbers that are part of the common denominations
+      // This helps with bills where the number might be detected as part of other text
+      if (amount === "Unknown") {
+        // Look for denomination patterns in the text
+        for (const denom of knownDenominations) {
+          if (text.includes(denom.toString())) {
+            console.log(`Found denomination in text: ${denom}`);
+            amount = denom.toString();
+            break;
+          }
+        }
+      }
+      
+      // Third pass: For Philippine Peso specifically, look for text patterns indicating denomination
+      if (currency === "PHP (Philippine Peso)" && amount === "Unknown") {
+        if (text.match(/ONE THOUSAND|1000|SANLIBO/i)) amount = "1000";
+        else if (text.match(/FIVE HUNDRED|500|LIMANDAA/i)) amount = "500";
+        else if (text.match(/TWO HUNDRED|200|DALAWANDAA/i)) amount = "200";
+        else if (text.match(/ONE HUNDRED|100|SANDAA/i)) amount = "100";
+        else if (text.match(/FIFTY|50|LIMAMPU/i)) amount = "50";
+        else if (text.match(/TWENTY|20|DALAWAMPU/i)) amount = "20";
+        
+        if (amount !== "Unknown") {
+          console.log(`Detected PHP denomination from text pattern: ${amount}`);
+        }
+      }
+      
+      // Special case for 1000 Philippine Peso - Visual pattern match 
+      if (currency === "PHP (Philippine Peso)" && amount === "Unknown") {
+        // Check for visual indicators of 1000 Peso bill
+        if (text.includes("1000") || 
+            text.includes("SANLIBO") || 
+            text.includes("LIBO") || 
+            text.match(/SANL([IL])\1B([AO])NG/i)) {
+          console.log("Detected 1000 PHP through visual patterns");
+          amount = "1000";
         }
       }
     }
 
     currencyValue = currency;
     billAmount = amount !== "Unknown" ? `${amount}` : "Not detected";
+    console.log(`Final detection - Currency: ${currency}, Amount: ${billAmount}`);
+    
+    // Set a relevant target currency based on the detected currency
+    const detectedCode = getCurrencyCode(currency);
+    if (detectedCode !== "Unknown") {
+      // If the detected currency is USD, default to EUR, otherwise default to USD
+      targetCurrency = detectedCode === "USD" ? "EUR" : "USD";
+    }
   }
 
   // Helper function to get issuing authority for the detected currency
@@ -889,14 +993,38 @@
   }
 
   // Function to open settings modal
-  function openSettings(event: Event): void {
-    event.preventDefault();
+  function openSettings(): void {
     showSettings = true;
+  }
+
+  function handleDragOver(event: DragEvent): void {
+    const dropzone = event.currentTarget as HTMLElement;
+    dropzone.classList.add('dragover');
+  }
+
+  function handleDragLeave(event: DragEvent): void {
+    const dropzone = event.currentTarget as HTMLElement;
+    dropzone.classList.remove('dragover');
+  }
+
+  function handleDrop(event: DragEvent): void {
+    const dropzone = event.currentTarget as HTMLElement;
+    dropzone.classList.remove('dragover');
+    
+    if (event.dataTransfer && event.dataTransfer.files.length) {
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.files = event.dataTransfer.files;
+        const changeEvent = new Event('change', { bubbles: true });
+        fileInput.dispatchEvent(changeEvent);
+      }
+    }
   }
 </script>
 
 <svelte:head>
   <title>Money Scanner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </svelte:head>
 
 <!-- Add the settings modal component -->
@@ -906,30 +1034,22 @@
 />
 
 <div class="container">
-  <!-- Decorative background elements -->
-  <div class="bg-decoration bg-circle-1"></div>
-  <div class="bg-decoration bg-circle-2"></div>
-  <div class="bg-decoration bg-dots"></div>
-  
-  <!-- Update header to be more compact -->
+  <!-- Modern, minimal header -->
   <header class="app-header">
     <div class="header-content">
       <div class="logo-container">
         <div class="logo">
           <span class="logo-icon">💵</span>
-          <div class="logo-shine"></div>
         </div>
         <div class="logo-text">
           <h1>Money Scanner</h1>
-          <span class="logo-subtitle">Quick & Accurate</span>
+          <span class="logo-subtitle">Currency Recognition Tool</span>
         </div>
       </div>
       <nav class="main-nav">
         <ul>
           <li><a href="/" class="active">Home</a></li>
           <li><a href="#currencies">Currencies</a></li>
-          <li><a href="#history">History</a></li>
-          <li><a href="#help">Help</a></li>
           <li><a href="#settings" on:click={openSettings}>Settings</a></li>
         </ul>
       </nav>
@@ -940,13 +1060,13 @@
       </button>
     </div>
     
-    <!-- Add workflow progress indicator -->
+    <!-- Minimal workflow progress indicator -->
     {#if activeMethod || currentImage}
       <div class="workflow-progress">
         <div class="progress-container">
           <div class="progress-step {!activeMethod && !currentImage ? 'active' : 'complete'}" title="Select scanning method">
             <div class="step-icon">1</div>
-            <span class="step-label">Select Method</span>
+            <span class="step-label">Select</span>
           </div>
           <div class="progress-line {activeMethod || currentImage ? 'active' : ''}"></div>
           <div class="progress-step {activeMethod && !currentImage ? 'active' : currentImage ? 'complete' : ''}" title="Capture or upload image">
@@ -964,14 +1084,25 @@
    
   </header>
   
-  <!-- Mobile menu -->
+  <!-- Processing Indicator Overlay -->
+  {#if processing}
+    <div class="processing-indicator">
+      <div class="processing-content">
+        <div class="spinner"></div>
+        <p class="processing-text">Analyzing bill content...</p>
+        <div class="progress-bar">
+          <div class="progress-bar-inner" style="width: {processingProgress}%"></div>
+        </div>
+      </div>
+    </div>
+  {/if}
+  
+  <!-- Simplified mobile menu -->
   {#if mobileMenuOpen}
     <div class="mobile-menu open" transition:slide={{ duration: 300 }}>
       <ul>
         <li><a href="/" class="active">Home</a></li>
         <li><a href="#currencies">Currencies</a></li>
-        <li><a href="#history">History</a></li>
-        <li><a href="#help">Help</a></li>
         <li><a href="#settings" on:click={openSettings}>Settings</a></li>
       </ul>
     </div>
@@ -979,441 +1110,205 @@
   
   <!-- Main content area with reduced text -->
   <main class="main-content">
-    <div class="page-header">
-      <h2>Money Scanner</h2>
-    </div>
-  
     {#if !currentImage}
       {#if activeMethod === ''}
-        <!-- Selection of scan method with reduced text -->
+        <!-- Simplified scan method selector -->
         <div class="scan-method-selector">
           <div class="section-intro">
-            <h3>Choose a Scanning Method</h3>
-            <p>Select how you'd like to scan your currency</p>
+            <h3>Scan Currency</h3>
+            <p>Choose how you'd like to scan your bill</p>
           </div>
           <div class="method-cards">
             <!-- Upload Method Card -->
             <div class="method-card" on:click={() => selectMethod('upload')} title="Upload an image from your device">
               <div class="method-card-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
                 </svg>
-                <div class="icon-animation"></div>
               </div>
-              <div class="method-card-content">
-                <h3>Upload Image</h3>
-                <p class="method-card-description">Scan money from your photo gallery</p>
-                <ul class="method-card-tips">
-                  <li>Use a well-lit, clear image</li>
-                  <li>Ensure the full bill is visible</li>
-                  <li>Supports JPG, PNG formats</li>
-                </ul>
-              </div>
-              <div class="method-button">
-                <span class="button-text">Select</span>
-                <span class="button-shine"></span>
-              </div>
+              <h3>Upload Image</h3>
+              <p class="method-card-description">Upload an image of your bill from your device</p>
+              <button class="method-button">Select Image</button>
             </div>
             
             <!-- Camera Method Card -->
-            <div class="method-card" on:click={() => selectMethod('camera')} title="Use your device's camera">
-              <div class="method-card-icon camera-icon-container">
-                <svg xmlns="http://www.w3.org/2000/svg" class="camera-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            <div class="method-card" on:click={() => selectMethod('camera')} title="Use your camera to scan a bill">
+              <div class="method-card-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                  <circle cx="12" cy="13" r="4"></circle>
                 </svg>
-                <div class="icon-animation camera-animation"></div>
               </div>
-              <div class="method-card-content">
-                <h3>Use Camera</h3>
-                <p class="method-card-description">Scan money using your camera in real-time</p>
-                <ul class="method-card-tips">
-                  <li>Ensure good lighting</li>
-                  <li>Keep the bill flat and steady</li>
-                  <li>Position within the frame</li>
-                </ul>
-              </div>
-              <div class="method-button">
-                <span class="button-text">Select</span>
-                <span class="button-shine"></span>
-              </div>
+              <h3>Use Camera</h3>
+              <p class="method-card-description">Use your camera to instantly scan a bill</p>
+              <button class="method-button">Open Camera</button>
             </div>
           </div>
         </div>
+        
       {:else if activeMethod === 'upload'}
-        <!-- Upload Section with enhanced UI -->
-        <div class="card">
-          <div class="card-content">
-            <div class="section-header">
-              <h2>Upload Image</h2>
-              <div class="divider"></div>
+        <!-- Simplified upload section -->
+        <div class="upload-container">
+          <div class="upload-header">
+            <h2 class="upload-title">Upload Bill Image</h2>
+            <button class="btn btn-secondary" on:click={() => { activeMethod = ''; showMethodSelector = true; }}>
+              <i class="fas fa-arrow-left"></i> Back
+            </button>
+          </div>
+          <div class="upload-content">
+            <div class="dropzone" on:click={triggerFileUpload} on:dragover|preventDefault={handleDragOver} on:dragleave={handleDragLeave} on:drop|preventDefault={handleDrop}>
+              <i class="fas fa-upload dropzone-icon"></i>
+              <p class="dropzone-text">Click or drag and drop to upload</p>
+              <p class="dropzone-subtext">Supported formats: JPEG, PNG</p>
             </div>
-            
-            <div class="upload-section-layout">
-              <div class="upload-container">
-                <div 
-                  class="upload-box {processing ? 'uploading' : ''}" 
-                  id="dropZone"
-                  tabindex="0"
-                  role="button"
-                  aria-label="Upload an image of currency. Click or press Enter to select a file, or drag and drop an image here."
-                  on:keydown={handleDropzoneKeyDown}
-                >
-                  <label for="imageUpload" title="Click to browse files or drag and drop an image">
-                    {#if previewUrl}
-                      <div class="preview-container {uploadComplete ? 'complete' : ''}">
-                        <img src={previewUrl} alt="Preview" class="preview-image" />
-                        {#if uploadComplete}
-                          <div class="success-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                              <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                            </svg>
-                          </div>
-                        {/if}
-                      </div>
-                    {:else}
-                      <div class="upload-icon-container">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <div class="upload-animation"></div>
-                      </div>
-                    {/if}
-                    <div class="upload-text">
-                      <span class="upload-primary">Drag & drop image here</span>
-                      <span class="upload-secondary">or click to browse files</span>
-                    </div>
-                    {#if processing}
-                      <div class="upload-progress">
-                        <div class="progress-bar-container">
-                          <div class="progress-bar" style="width: {processingProgress}%"></div>
-                        </div>
-                        <span>Processing image... {processingProgress}%</span>
-                      </div>
-                    {/if}
-                    <input 
-                      type="file" 
-                      id="imageUpload" 
-                      accept="image/*" 
-                      on:change={handleFileUpload}
-                      aria-label="Upload currency image"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div class="currency-examples">
-                <h3>Sample Currency Images</h3>
-                <div class="example-images">
-                  <div class="example-image">
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/United_States_one_dollar_bill%2C_obverse.jpg/320px-United_States_one_dollar_bill%2C_obverse.jpg" 
-                      alt="Example of a US dollar bill for scanning" 
-                    />
-                    <span class="example-label">USD Example</span>
-                  </div>
-                  <div class="example-image">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/EUR_20_obverse_%282015_issue%29.jpg/320px-EUR_20_obverse_%282015_issue%29.jpg" alt="Sample Euro bill" />
-                    <span class="example-label">EUR Example</span>
-                  </div>
-                </div>
-                <div class="upload-tips">
-                  <h4>For Best Results:</h4>
-                  <ul>
-                    <li>Ensure good lighting</li>
-                    <li>Place bill on flat surface</li>
-                    <li>Capture the entire bill</li>
-                    <li>Avoid shadows and glare</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            
-            <div class="text-center mt-4">
-              <button class="btn btn-secondary" on:click={() => selectMethod('')} title="Return to method selection">
-                <span class="btn-icon">←</span> Back
-              </button>
-            </div>
+            <input type="file" accept="image/*" hidden on:change={handleFileUpload} />
           </div>
         </div>
+        
       {:else if activeMethod === 'camera'}
-        <!-- Camera Section -->
-        <div class="card">
-          <div class="card-header">
-            <h2>Camera Scanner</h2>
-            <div class="divider"></div>
+        <!-- Simplified camera section -->
+        <div class="camera-container">
+          <div class="camera-header">
+            <h2 class="camera-title">Scan Bill with Camera</h2>
+            <button class="btn btn-secondary" on:click={() => { activeMethod = ''; showMethodSelector = true; }}>
+              <i class="fas fa-arrow-left"></i> Back
+            </button>
           </div>
-          
-          <div class="card-content">
-            <div class="camera-tabs">
-              <button 
-                class="tab-button {cameraMode === 'photo' ? 'active' : ''}" 
-                on:click={() => setCameraMode('photo')}
-                title="Take a single photo of currency"
-              >
-                <span class="tab-icon">📷</span> Photo
+          <div class="camera-content">
+            {#if !showCamera}
+              <button class="btn btn-primary" on:click={toggleCamera}>
+                <i class="fas fa-camera"></i> Start Camera
               </button>
-              <button 
-                class="tab-button {cameraMode === 'live' ? 'active' : ''}" 
-                on:click={() => setCameraMode('live')}
-                title="Automatically scan bills in real-time"
-              >
-                <span class="tab-icon">🔄</span> Live Scan
-              </button>
-            </div>
-            
-            {#if processing}
+            {:else if cameraError}
+              <div class="camera-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>{cameraErrorMessage}</p>
+                <button class="btn btn-primary" on:click={toggleCamera}>Try Again</button>
+              </div>
+            {:else if processing}
               <div class="camera-loading">
                 <div class="spinner"></div>
-                <p>Loading camera...</p>
-              </div>
-            {:else if cameraError}
-              <div class="error-container">
-                <div class="error-message">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="error-icon" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                  </svg>
-                  <p>{cameraErrorMessage}</p>
-                </div>
-                <div class="error-actions">
-                  <button 
-                    class="btn btn-primary" 
-                    on:click={toggleCamera}
-                    title="Try connecting to the camera again"
-                  >
-                    <span class="btn-icon">🔄</span> Retry
-                  </button>
-                  <button 
-                    class="btn btn-primary" 
-                    on:click={testCamera}
-                    title="Test if your camera works properly"
-                  >
-                    <span class="btn-icon">🔍</span> Test Camera
-                  </button>
-                  <button 
-                    class="btn btn-secondary" 
-                    on:click={() => selectMethod('')}
-                    title="Return to method selection"
-                  >
-                    <span class="btn-icon">←</span> Back
-                  </button>
-                </div>
+                <p>Initializing camera...</p>
               </div>
             {:else}
-              <div class="camera-section-layout">
-                <div class="camera-container-wrapper">
-                  <div class="camera-container {cameraMode === 'live' ? 'live-mode' : ''}">
-                    <video 
-                      bind:this={cameraFeed}
-                      autoplay 
-                      playsInline
-                      class="camera-video"
-                    ></video>
-                    
-                    {#if processing}
-                      <div class="camera-status-indicator">
-                        <div class="spinner"></div>
-                        <p>Starting camera...</p>
-                      </div>
-                    {/if}
-                    
-                    {#if cameraMode === 'photo'}
-                      <div class="camera-guide-overlay">
-                        <div class="camera-guide-frame"></div>
-                      </div>
-                      <button 
-                        on:click={captureImage}
-                        disabled={processing || !stream}
-                        class="btn btn-round btn-camera"
-                        title="Take photo"
-                        aria-label="Capture image"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                      </button>
-                    {:else if cameraMode === 'live'}
-                      <div class="scan-frame"></div>
-                      <div class="scan-status">
-                        <div class="scan-indicator {scanSuccess ? 'success' : ''}"></div>
-                        <span>{scanSuccess ? 'Detected!' : 'Position bill'}</span>
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-                
-                <div class="camera-sidebar">
-                  <div class="sidebar-header">
-                    <h3>Camera Tips</h3>
-                  </div>
-                  <div class="sidebar-content">
-                    {#if cameraMode === 'photo'}
-                      <ul class="camera-tips">
-                        <li>Position bill within the frame</li>
-                        <li>Ensure good lighting</li>
-                        <li>Keep camera steady</li>
-                      </ul>
-                    {:else if cameraMode === 'live'}
-                      <ul class="camera-tips">
-                        <li>Move bill slowly in front of camera</li>
-                        <li>Ensure good lighting</li>
-                        <li>System will detect automatically</li>
-                      </ul>
-                    {/if}
-                  </div>
-                  <div class="camera-controls">
-                    {#if cameraMode === 'live' && stream}
-                      <button 
-                        class="btn {liveScanMode ? 'btn-primary' : 'btn-secondary'}" 
-                        on:click={toggleLiveScan}
-                        title={liveScanMode ? 'Pause scanning' : 'Start scanning'}
-                      >
-                        <span class="btn-icon">{liveScanMode ? '⏸️' : '▶️'}</span> {liveScanMode ? 'Pause' : 'Start'}
-                      </button>
-                    {/if}
-                    
-                    <button 
-                      class="btn btn-secondary" 
-                      on:click={() => selectMethod('')}
-                      title="Return to method selection"
-                    >
-                      <span class="btn-icon">←</span> Back
-                    </button>
-                  </div>
-                </div>
+              <div class="camera-preview">
+                <video bind:this={cameraFeed} autoplay playsinline></video>
+              </div>
+              <div class="camera-controls">
+                <button class="btn btn-secondary" on:click={toggleCamera}>
+                  <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" on:click={captureImage}>
+                  <i class="fas fa-camera"></i> Capture Image
+                </button>
               </div>
             {/if}
           </div>
         </div>
       {/if}
     {:else}
-      <!-- Results Section -->
-      <div class="card results-card">
-        <div class="results-header">
-          <h2>Scan Results</h2>
-          <div class="animated-divider"></div>
+      <!-- Modern, clean results display -->
+      <div class="result-card">
+        <div class="result-header">
+          <h2 class="result-title">Scan Results</h2>
         </div>
-        
-        <div class="card-content">
-          <div class="results-container">
-            <div class="scanned-image-container">
-              {#if processing}
-                <div class="camera-overlay">
-                  <div class="spinner"></div>
-                  <p>Processing...</p>
-                </div>
-              {/if}
-              <div class="image-controls">
-                <button class="image-control-btn" title="Zoom in" on:click={() => handleImageZoom(1.2)}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    <line x1="11" y1="8" x2="11" y2="14"></line>
-                    <line x1="8" y1="11" x2="14" y2="11"></line>
-                  </svg>
-                </button>
-                <button class="image-control-btn" title="Zoom out" on:click={() => handleImageZoom(0.8)}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    <line x1="8" y1="11" x2="14" y2="11"></line>
-                  </svg>
-                </button>
-                <button class="image-control-btn" title="Rotate left" on:click={() => handleImageRotation(-90)}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 12c0 5.5 4.5 10 10 10s10-4.5 10-10S17.5 2 12 2"></path>
-                    <polyline points="2 8 6 12 2 16"></polyline>
-                  </svg>
-                </button>
-                <button class="image-control-btn" title="Rotate right" on:click={() => handleImageRotation(90)}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 12c0 5.5-4.5 10-10 10S2 17.5 2 12 6.5 2 12 2"></path>
-                    <polyline points="22 8 18 12 22 16"></polyline>
-                  </svg>
-                </button>
-                <button class="image-control-btn" title="Reset image" on:click={() => resetImageTransforms()}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 2v6h6"></path>
-                    <path d="M3 13a9 9 0 1 0 3-7.7L3 8"></path>
-                  </svg>
-                </button>
-                <button class="image-control-btn" title={isFullscreen ? "Exit fullscreen" : "View fullscreen"} on:click={toggleFullscreen}>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    {#if isFullscreen}
-                      <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
-                    {:else}
-                      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
-                    {/if}
-                  </svg>
-                </button>
-              </div>
-              <div class="image-wrapper" class:fullscreen={isFullscreen}>
-                <img 
-                  src={currentImage} 
-                  alt="Scanned bill" 
-                  class="scanned-image" 
-                  style="transform: scale({imageZoom}) rotate({imageRotation}deg);" 
-                />
-                {#if isFullscreen}
-                  <button class="close-fullscreen" on:click={toggleFullscreen}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18"></line>
-                      <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                  </button>
-                {/if}
-              </div>
-              <div class="image-decoration"></div>
-              <div class="image-instructions">
-                Use controls above to zoom, rotate, and view fullscreen
-              </div>
+        <div class="result-content">
+          <div class="scanned-image-container">
+            <div class="image-controls">
+              <button class="image-control-btn" on:click={() => handleImageZoom(1.1)} title="Zoom in">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                </svg>
+              </button>
+              <button class="image-control-btn" on:click={() => handleImageZoom(0.9)} title="Zoom out">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                </svg>
+              </button>
+              <button class="image-control-btn" on:click={() => handleImageRotation(90)} title="Rotate image">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 4v6h-6"></path>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+              </button>
+              <button class="image-control-btn" on:click={resetImageTransforms} title="Reset image">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 2v6h6"></path>
+                  <path d="M21 12A9 9 0 0 0 6 5.3L3 8"></path>
+                  <path d="M21 22v-6h-6"></path>
+                  <path d="M3 12a9 9 0 0 0 15 6.7l3-2.7"></path>
+                </svg>
+              </button>
+              <button class="image-control-btn" on:click={toggleFullscreen} title="View fullscreen">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 3h6v6"></path>
+                  <path d="M9 21H3v-6"></path>
+                  <path d="M21 3l-7 7"></path>
+                  <path d="M3 21l7-7"></path>
+                </svg>
+              </button>
             </div>
             
-            <div class="results-details">
-              <div class="result-display">
-                <div class="result-panel">
-                  <div class="result-icon">💵</div>
-                  <h3>Bill Value</h3>
-                  <div class="result-value">{billAmount}</div>
-                </div>
-                
-                <div class="result-panel">
-                  <div class="result-icon">🏛️</div>
-                  <h3>Currency</h3>
-                  <div class="result-value">{currencyValue}</div>
-                </div>
-                
-                <!-- Add a speak button for accessibility -->
-                <div class="result-panel speak-panel">
-                  <div class="result-icon">🔊</div>
-                  <h3>Voice Announcement</h3>
-                  <div class="result-value">
-                    <TextToSpeechButton 
-                      amount={billAmount}
-                      currency={getCurrencyCode(currencyValue)}
-                      extraInfo={`Issued by ${getIssuingAuthority(currencyValue)}`}
-                      iconOnly={false}
-                    />
-                  </div>
-                </div>
-              </div>
+            <div class="image-wrapper" class:fullscreen={isFullscreen}>
+              {#if currentImage}
+                <img 
+                  src={currentImage} 
+                  alt="Scanned currency"
+                  class="scanned-image"
+                  style="transform: scale({imageZoom}) rotate({imageRotation}deg); transition: transform 0.3s ease;"
+                />
+              {/if}
+              
+              {#if isFullscreen}
+                <button class="close-fullscreen" on:click={toggleFullscreen}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              {/if}
             </div>
           </div>
           
-          <!-- Enhanced currency information -->
-          <div class="currency-details">
-            <h3 class="details-header">
-              Currency Information
-              <span class="accessibility-controls">
+          <div class="result-panels">
+            <div class="result-panel">
+              <div class="result-icon">💵</div>
+              <h3>Bill Value</h3>
+              <div class="result-value">{billAmount}</div>
+            </div>
+            
+            <div class="result-panel">
+              <div class="result-icon">🏛️</div>
+              <h3>Currency</h3>
+              <div class="result-value">{currencyValue}</div>
+            </div>
+            
+            <!-- Add a speak button for accessibility -->
+            <div class="result-panel speak-panel">
+              <div class="result-icon">🔊</div>
+              <h3>Voice Announcement</h3>
+              <div class="result-value">
                 <TextToSpeechButton 
                   amount={billAmount}
                   currency={getCurrencyCode(currencyValue)}
                   extraInfo={`Issued by ${getIssuingAuthority(currencyValue)}`}
-                  iconOnly={true}
+                  iconOnly={false}
                 />
-              </span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Currency details in clean, modern grid -->
+          <div class="currency-details">
+            <h3 class="details-header">
+              Currency Information
             </h3>
             
             <div class="details-grid">
@@ -1437,12 +1332,33 @@
                 <div class="detail-icon">💱</div>
                 <div class="detail-content">
                   <h4>Exchange Rate</h4>
-                  <!-- Exchange rate widget with enhanced handling -->
-                  <ExchangeRateWidget 
-                    fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
-                    toCurrency="USD" 
-                    amount={getNumericAmount(billAmount)} 
-                  />
+                  <div class="exchange-rate-container">
+                    <div class="currency-selector">
+                      <label for="targetCurrency">Convert to:</label>
+                      <select 
+                        id="targetCurrency" 
+                        bind:value={targetCurrency}
+                        class="currency-select"
+                      >
+                        {#each commonCurrencies as currency}
+                          <option value={currency.code} disabled={currency.code === getCurrencyCode(currencyValue)}>
+                            {currency.code} - {currency.name}
+                          </option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="conversion-info">
+                      <p class="conversion-from">
+                        {billAmount !== "Unknown" && billAmount !== "Not detected" ? billAmount : "1"} {getCurrencyCode(currencyValue)}
+                      </p>
+                      <div class="conversion-arrow">→</div>
+                    </div>
+                    <ExchangeRateWidget 
+                      fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
+                      toCurrency={targetCurrency} 
+                      amount={getNumericAmount(billAmount)} 
+                    />
+                  </div>
                 </div>
               </div>
               
@@ -1455,13 +1371,6 @@
                     currency={currencyValue}
                   />
                 </div>
-              </div>
-            </div>
-            
-            <div class="detail-panel">
-              <h4>Detected Text</h4>
-              <div class="text-panel">
-                <p>{extractedText}</p>
               </div>
             </div>
           </div>
@@ -1478,11 +1387,6 @@
               <span class="action-icon">🔗</span>
               <span>Share</span>
             </button>
-            
-            <button class="action-button" on:click={() => window.print()} title="Print these results">
-              <span class="action-icon">🖨️</span>
-              <span>Print</span>
-            </button>
           </div>
         </div>
         
@@ -1490,192 +1394,108 @@
           <button class="btn btn-primary" on:click={resetScan} title="Scan another bill">
             <span class="btn-icon">🔄</span> Scan Again
           </button>
-          <a href="#currencies" class="btn btn-secondary">
-            <span class="btn-icon">📊</span> Currency Guide
-          </a>
         </div>
       </div>
     {/if}
   </main>
 </div>
 
+<!-- Hidden canvas for image processing -->
+<canvas bind:this={canvas} style="display: none;"></canvas>
+
 <style>
-  /* Base styles with more visual interest */
+  /* Modern base styles */
   :global(body) {
-    background: linear-gradient(135deg, #eef2ff 0%, #e6f7ff 100%);
-    color: #333;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    background-color: #f9fafb;
+    color: #1f2937;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     position: relative;
     overflow-x: hidden;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     margin: 0;
+    line-height: 1.5;
   }
   
-  /* Add subtle animated pattern to the background */
+  /* Clean, subtle background */
   :global(body)::before {
     content: "";
     position: fixed;
     inset: 0;
+    background-size: 60px 60px;
     background-image: 
-      linear-gradient(transparent 0px, transparent 1px, rgba(59, 130, 246, 0.02) 1px, transparent 2px),
-      linear-gradient(90deg, transparent 0px, transparent 1px, rgba(59, 130, 246, 0.02) 1px, transparent 2px);
-    background-size: 35px 35px;
+      radial-gradient(circle, rgba(99, 102, 241, 0.03) 1px, transparent 0);
     z-index: -1;
-    animation: pattern-shift 120s infinite linear;
-    opacity: 0.7;
-  }
-  
-  @keyframes pattern-shift {
-    0% { background-position: 0 0; }
-    100% { background-position: 1000px 500px; }
+    opacity: 0.5;
   }
   
   .container {
     max-width: 1200px;
     margin: 0 auto;
-    padding-top: 60px; /* Add space for the fixed header */
+    padding: 120px 16px 32px;
     position: relative;
     z-index: 1;
     flex: 1 0 auto;
     display: flex;
     flex-direction: column;
-    padding-bottom: 2rem; /* Add space at the bottom */
   }
   
   /* Main content should expand to fill available space */
   .main-content {
     flex: 1 0 auto;
+    padding: 20px 8px;
+    margin-top: 30px;
   }
   
-  /* Decorative background elements */
-  .bg-decoration {
-    position: fixed;
-    z-index: -1;
-    opacity: 0.4;
-  }
-  
-  .bg-circle-1 {
-    width: 600px;
-    height: 600px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0) 70%);
-    top: -200px;
-    right: -200px;
-  }
-  
-  .bg-circle-2 {
-    width: 400px;
-    height: 400px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(37, 99, 235, 0.1) 0%, rgba(59, 130, 246, 0) 70%);
-    bottom: -100px;
-    left: -100px;
-  }
-  
-  .bg-dots {
-    width: 100%;
-    height: 100%;
-    background-image: radial-gradient(rgba(37, 99, 235, 0.1) 1px, transparent 1px);
-    background-size: 30px 30px;
-    background-position: 0 0;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-  }
-  
-  /* Enhanced header styles */
+  /* Modern header styles */
   .app-header {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
     z-index: 1000;
-    background: linear-gradient(to right, rgba(255, 255, 255, 0.95), rgba(242, 246, 255, 0.95));
-    box-shadow: 
-      0 4px 12px rgba(0, 0, 0, 0.06),
-      0 1px 0 rgba(59, 130, 246, 0.1);
-    padding: 0.75rem 0;
+    background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border-bottom: 2px solid transparent;
-    border-image: linear-gradient(to right, #60a5fa, #3b82f6, #1e40af);
-    border-image-slice: 1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    padding: 12px 0 20px;
+    height: auto;
   }
   
   .header-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 1.5rem;
   }
   
+  /* Modern, minimal logo */
   .logo-container {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 12px;
   }
   
   .logo {
-    font-size: 2rem;
-    line-height: 1;
-    padding: 0.25rem;
-    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-    border-radius: 16px;
-    color: white;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
-    box-shadow: 
-      0 6px 15px rgba(37, 99, 235, 0.3),
-      inset 0 1px 2px rgba(255, 255, 255, 0.4),
-      0 0 0 2px rgba(59, 130, 246, 0.15);
     position: relative;
     overflow: hidden;
-    transition: all 0.3s ease;
-  }
-  
-  .logo:hover {
-    transform: scale(1.05) rotate(5deg);
-    box-shadow: 
-      0 8px 20px rgba(37, 99, 235, 0.4),
-      inset 0 1px 3px rgba(255, 255, 255, 0.5),
-      0 0 0 3px rgba(59, 130, 246, 0.2);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
   }
   
   .logo-icon {
+    font-size: 20px;
     position: relative;
     z-index: 2;
-  }
-  
-  .logo-shine {
-    position: absolute;
-    top: -20px;
-    left: -20px;
-    width: 80px;
-    height: 80px;
-    background: linear-gradient(45deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0) 100%);
-    z-index: 1;
-    transform: rotate(45deg);
-    animation: logo-shine 3s infinite;
-  }
-  
-  @keyframes logo-shine {
-    0% {
-      transform: translateX(-100%) translateY(-100%) rotate(45deg);
-    }
-    50% {
-      transform: translateX(100%) translateY(100%) rotate(45deg);
-    }
-    100% {
-      transform: translateX(-100%) translateY(-100%) rotate(45deg);
-    }
   }
   
   .logo-text {
@@ -1684,519 +1504,251 @@
   }
   
   .logo-text h1 {
-    font-size: 1.4rem;
     margin: 0;
-    font-weight: 700;
-    color: #1e40af;
-    letter-spacing: -0.02em;
+    font-size: 18px;
+    font-weight: 600;
+    color: #4f46e5;
     line-height: 1.2;
-    position: relative;
-    background: linear-gradient(to right, #1e40af, #3b82f6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
   }
   
   .logo-subtitle {
-    font-size: 0.8rem;
-    color: #60a5fa;
-    font-weight: 500;
-    letter-spacing: 0.02em;
+    font-size: 12px;
+    color: #6b7280;
   }
   
-  /* Improved main nav styles */
+  /* Clean navigation */
   .main-nav {
     display: none;
+  }
+  
+  @media (min-width: 768px) {
+    .main-nav {
+      display: block;
+    }
   }
   
   .main-nav ul {
     display: flex;
     list-style: none;
-    padding: 0;
     margin: 0;
-    gap: 2rem;
+    padding: 0;
+    gap: 24px;
   }
   
   .main-nav a {
-    text-decoration: none;
     color: #4b5563;
-    font-weight: 600;
-    font-size: 1rem;
-    padding: 0.5rem 0;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 500;
+    padding: 8px 0;
     position: relative;
     transition: color 0.2s ease;
   }
   
   .main-nav a:hover {
-    color: #2563eb;
+    color: #4f46e5;
   }
   
   .main-nav a.active {
-    color: #2563eb;
+    color: #4f46e5;
   }
   
   .main-nav a.active::after {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background-color: #2563eb;
-  }
-  
-  /* Content styles enhancements */
-  .card {
-    background-color: white;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
-    margin-bottom: 2rem;
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
-    position: relative;
-    overflow: hidden;
-  }
-  
-  .card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
-  }
-  
-  .card::before {
     content: "";
     position: absolute;
-    top: 0;
+    bottom: 0;
     left: 0;
     right: 0;
-    bottom: 0;
-    background-image: 
-      radial-gradient(circle at 10% 20%, rgba(37, 99, 235, 0.02) 0%, transparent 20%),
-      radial-gradient(circle at 85% 60%, rgba(37, 99, 235, 0.03) 0%, transparent 30%);
-    z-index: 0;
-    pointer-events: none;
-  }
-  
-  .card > * {
-    position: relative;
-    z-index: 1;
-  }
-  
-  .page-header {
-    text-align: center;
-    margin: 2.5rem 0 3rem;
-    position: relative;
-  }
-  
-  .page-header::before {
-    content: "";
-    position: absolute;
-    width: 200px;
-    height: 200px;
-    background: radial-gradient(circle, rgba(37, 99, 235, 0.05) 0%, transparent 70%);
-    top: -100px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: -1;
-    border-radius: 50%;
-  }
-  
-  .page-header::after {
-    content: "";
-    display: block;
-    width: 80px;
-    height: 4px;
-    background: linear-gradient(90deg, #2563eb, #60a5fa);
-    margin: 1rem auto 0;
+    height: 2px;
+    background-color: #4f46e5;
     border-radius: 2px;
-    animation: pulse-width 3s infinite;
   }
   
-  @keyframes pulse-width {
-    0% { width: 40px; opacity: 0.7; }
-    50% { width: 80px; opacity: 1; }
-    100% { width: 40px; opacity: 0.7; }
-  }
-  
-  .page-header h2 {
-    font-size: 2rem;
-    font-weight: 800;
-    margin: 0;
-    color: #1e40af;
-    letter-spacing: -0.02em;
-  }
-  
-  /* Enhanced method cards - modified for horizontal layout on desktop */
-  .method-cards {
+  /* Minimal, sleek mobile menu toggle */
+  .mobile-menu-toggle {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    margin: 2rem auto;
-    max-width: 800px;
-    position: relative;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    z-index: 1001;
   }
   
-  /* Add floating particles around method cards */
-  .method-cards::before,
-  .method-cards::after {
-    content: "";
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
+  @media (min-width: 768px) {
+    .mobile-menu-toggle {
+      display: none;
+    }
   }
   
-  .method-cards::before {
-    background-image: 
-      radial-gradient(circle at 20% 35%, rgba(96, 165, 250, 0.15) 0%, rgba(96, 165, 250, 0) 50px),
-      radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0) 40px),
-      radial-gradient(circle at 40% 80%, rgba(37, 99, 235, 0.1) 0%, rgba(37, 99, 235, 0) 30px);
-    filter: blur(1px);
-    animation: float-particles 15s infinite ease-in-out;
+  .mobile-menu-toggle span {
+    display: block;
+    width: 24px;
+    height: 2px;
+    background-color: #4f46e5;
+    border-radius: 2px;
+    transition: all 0.3s ease;
   }
   
-  .method-cards::after {
-    background-image: 
-      radial-gradient(circle at 70% 65%, rgba(96, 165, 250, 0.1) 0%, rgba(96, 165, 250, 0) 40px),
-      radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0) 50px),
-      radial-gradient(circle at 60% 30%, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0) 35px);
-    filter: blur(1px);
-    animation: float-particles 20s infinite ease-in-out reverse;
+  /* Mobile menu */
+  .mobile-menu {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    background: white;
+    z-index: 900;
+    padding: 16px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
   }
   
-  @keyframes float-particles {
-    0% { transform: rotate(0deg) scale(1); }
-    33% { transform: rotate(2deg) scale(1.02); }
-    66% { transform: rotate(-2deg) scale(0.98); }
-    100% { transform: rotate(0deg) scale(1); }
+  .mobile-menu ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
   }
   
-  /* Make cards horizontal on desktop with equal dimensions */
+  .mobile-menu li {
+    margin-bottom: 8px;
+  }
+  
+  .mobile-menu a {
+    display: block;
+    padding: 12px 16px;
+    color: #4b5563;
+    text-decoration: none;
+    font-weight: 500;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+  }
+  
+  .mobile-menu a:hover, .mobile-menu a.active {
+    background-color: #f3f4f6;
+    color: #4f46e5;
+  }
+  
+  /* Section intro */
+  .section-intro {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  
+  .section-intro h3 {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: #111827;
+  }
+  
+  .section-intro p {
+    font-size: 16px;
+    color: #6b7280;
+    margin: 0;
+  }
+  
+  /* Method cards - modern, flat design */
+  .scan-method-selector {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  
+  .method-cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-bottom: 40px;
+  }
+  
   @media (min-width: 768px) {
     .method-cards {
-      flex-direction: row;
-      justify-content: center;
-      gap: 2rem;
-      margin: 3rem auto;
-    }
-    
-    .method-card {
-      flex: 1;
-      width: 350px;
-      height: 420px; /* Fixed height for equal sizing */
-      padding: 2rem;
-      max-width: 350px;
+      grid-template-columns: 1fr 1fr;
     }
   }
   
   .method-card {
-    background: linear-gradient(145deg, #ffffff, #f8faff);
-    border-radius: 20px;
-    box-shadow: 
-      0 10px 25px rgba(37, 99, 235, 0.08), 
-      0 5px 10px rgba(37, 99, 235, 0.05),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.6);
-    padding: 2rem;
-    padding-bottom: 2.5rem;
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+    padding: 24px;
     display: flex;
     flex-direction: column;
     cursor: pointer;
-    transition: all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-    border: 1px solid rgba(59, 130, 246, 0.1);
+    transition: all 0.2s ease;
     position: relative;
     overflow: hidden;
-    transform-style: preserve-3d;
-    perspective: 1000px;
+    height: 100%;
+    border: 1px solid #f3f4f6;
   }
   
   .method-card:hover {
-    transform: translateY(-10px) scale(1.03) rotateX(3deg) rotateY(-3deg);
-    box-shadow: 
-      0 25px 50px rgba(37, 99, 235, 0.15), 
-      0 15px 25px rgba(37, 99, 235, 0.1),
-      0 0 0 2px rgba(147, 197, 253, 0.2),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.8);
-    background: linear-gradient(145deg, #ffffff, #eef6ff);
-  }
-  
-  /* Add 3D-like glow effect to card edges */
-  .method-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 8px;
-    height: 100%;
-    background: linear-gradient(to bottom, #3b82f6, #60a5fa, #93c5fd);
-    border-radius: 16px 0 0 16px;
-    transition: all 0.4s ease;
-    box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
-    transform: translateZ(10px);
-  }
-  
-  .method-card::after {
-    content: "";
-    position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 100%;
-    height: 100%;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, transparent 70%);
-    border-radius: 50%;
-    z-index: 0;
-    transform: translateZ(5px);
-  }
-  
-  /* Add a subtle color-changing border */
-  .method-card > * {
-    position: relative;
-    z-index: 2;
-  }
-  
-  .method-card:hover {
-    transform: translateY(-8px) scale(1.02) rotateX(2deg) rotateY(-2deg);
-    box-shadow: 
-      0 20px 40px rgba(37, 99, 235, 0.15), 
-      0 15px 20px rgba(37, 99, 235, 0.1),
-      0 0 0 2px rgba(147, 197, 253, 0.2);
-    background: linear-gradient(145deg, #ffffff, #eef6ff);
-  }
-  
-  .method-card:hover::before {
-    width: 12px;
-    background: linear-gradient(to bottom, #2563eb, #3b82f6, #60a5fa);
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
-    filter: brightness(1.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+    border-color: rgba(99, 102, 241, 0.2);
   }
   
   .method-card-icon {
-    width: 80px;
-    height: 80px;
+    width: 56px;
+    height: 56px;
+    background-color: #f5f3ff;
+    color: #6366f1;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(145deg, #eef6ff, #dbeafe);
-    border-radius: 50%;
-    margin-right: 1.75rem;
-    color: #2563eb;
-    flex-shrink: 0;
-    position: relative;
-    box-shadow: 
-      0 8px 16px rgba(37, 99, 235, 0.15), 
-      inset 0 -2px 6px rgba(0, 0, 0, 0.05),
-      0 0 0 4px rgba(219, 234, 254, 0.4);
-    overflow: hidden;
-    transition: all 0.5s ease;
-    transform: translateZ(20px);
-  }
-  
-  .method-card:hover .method-card-icon {
-    transform: translateZ(30px) scale(1.1);
-    box-shadow: 
-      0 12px 20px rgba(37, 99, 235, 0.2), 
-      inset 0 -2px 6px rgba(0, 0, 0, 0.08),
-      0 0 0 6px rgba(219, 234, 254, 0.5);
-  }
-  
-  .icon-animation {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(45deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.2));
-    z-index: 1;
-    opacity: 0;
-    transition: opacity 0.5s ease;
-  }
-  
-  .method-card:hover .icon-animation {
-    opacity: 1;
-    animation: pulse-light 3s infinite;
-  }
-  
-  @keyframes pulse-light {
-    0% {
-      opacity: 0.2;
-      transform: scale(1);
-    }
-    50% {
-      opacity: 0.6;
-      transform: scale(1.05);
-    }
-    100% {
-      opacity: 0.2;
-      transform: scale(1);
-    }
-  }
-  
-  .camera-animation {
-    background: linear-gradient(45deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.3));
-  }
-  
-  .method-card-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding-right: 1rem;
+    border-radius: 12px;
+    margin-bottom: 20px;
   }
   
   .method-card h3 {
-    margin: 0 0 0.5rem;
-    font-size: 1.4rem;
+    margin: 0 0 8px;
+    font-size: 18px;
     font-weight: 600;
-    color: #1e3a8a;
-    transition: all 0.3s ease;
-    transform: translateZ(15px);
-  }
-  
-  .method-card:hover h3 {
-    color: #1e40af;
-    text-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
-    transform: translateZ(25px);
+    color: #111827;
   }
   
   .method-card-description {
-    margin: 0 0 1rem 0;
+    margin: 0 0 24px 0;
     color: #6b7280;
-    font-size: 0.95rem;
-    transition: all 0.3s ease;
-    transform: translateZ(10px);
-  }
-  
-  .method-card:hover .method-card-description {
-    color: #4b5563;
-    transform: translateZ(15px);
+    font-size: 14px;
   }
   
   .method-button {
-    background: linear-gradient(135deg, #4f8df8 0%, #2563eb 100%);
+    background-color: #6366f1;
     color: white;
-    padding: 0.8rem 1.5rem;
-    border-radius: 14px;
-    font-size: 1.1rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    box-shadow: 
-      0 8px 20px rgba(37, 99, 235, 0.3), 
-      inset 0 2px 4px rgba(255, 255, 255, 0.4),
-      0 0 0 1px rgba(37, 99, 235, 0.2);
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    width: 90%;
-    text-align: center;
-    display: block;
-    position: relative;
-    bottom: 0;
-    margin-top: auto;
-    margin-bottom: 3rem;
-    overflow: hidden;
-    z-index: 5;
-    transform: translateZ(20px);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: 500;
     cursor: pointer;
-    animation: button-pulse 3s infinite;
-  }
-  
-  .button-text {
-    position: relative;
-    z-index: 3;
-    font-weight: 700;
+    transition: all 0.2s ease;
     display: inline-block;
-    transform: translateZ(5px);
-    transition: all 0.3s ease;
+    text-align: center;
+    margin-top: auto;
   }
   
-  .button-shine {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, 
-      transparent 0%, 
-      rgba(255, 255, 255, 0) 5%, 
-      rgba(255, 255, 255, 0.25) 50%, 
-      rgba(255, 255, 255, 0) 95%, 
-      transparent 100%);
-    transform: translateX(-100%) skewX(-15deg);
-    z-index: 2;
+  .method-button:hover {
+    background-color: #4f46e5;
   }
   
-  @keyframes button-pulse {
-    0% { box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.2); }
-    50% { box-shadow: 0 8px 25px rgba(37, 99, 235, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.3); }
-    100% { box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.2); }
-  }
-  
-  .method-button::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.2), transparent);
-    transform: translateX(-100%);
-    transition: transform 0.8s ease;
-    z-index: 1;
-  }
-  
-  .method-button::after {
-    content: "";
-    position: absolute;
-    bottom: -50%;
-    left: -10%;
-    height: 200%;
-    width: 120%;
-    background: linear-gradient(transparent, rgba(255, 255, 255, 0.15), transparent);
-    transform: rotate(25deg);
-    transition: transform 0.8s ease;
-    z-index: 1;
-  }
-  
-  .method-card:hover .method-button {
-    transform: translateZ(30px) scale(1.05);
-    box-shadow: 
-      0 15px 30px rgba(37, 99, 235, 0.5), 
-      inset 0 2px 6px rgba(255, 255, 255, 0.8),
-      0 0 0 2px rgba(59, 130, 246, 0.4);
-    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 80%, #2563eb 100%);
-    animation: none;
-  }
-  
-  .method-card:hover .method-button .button-text {
-    transform: translateZ(10px) scale(1.05);
-    letter-spacing: 0.03em;
-  }
-  
-  .method-card:hover .method-button .button-shine {
-    animation: shine-sweep 1.5s ease-in-out;
-  }
-  
-  @keyframes shine-sweep {
-    0% {
-      transform: translateX(-100%) skewX(-15deg);
-    }
-    100% {
-      transform: translateX(200%) skewX(-15deg);
-    }
-  }
-  
-  .method-card:hover .method-button::before {
-    transform: translateX(100%);
-    transition: transform 1.5s ease;
-  }
-  
-  /* Workflow progress indicator */
+  /* Workflow progress - minimal clean design */
   .workflow-progress {
-    background: rgba(255, 255, 255, 0.9);
-    border-top: 1px solid rgba(37, 99, 235, 0.1);
-    padding: 0.75rem 0;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0 1.5rem;
+    position: relative;
+    background-color: rgba(255, 255, 255, 1);
+    padding: 10px 0;
+    z-index: 10;
   }
   
   .progress-container {
     display: flex;
     align-items: center;
-    justify-content: center;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 0 1rem;
+    justify-content: space-between;
+    max-width: 600px;
+    width: 100%;
+    position: relative;
   }
   
   .progress-step {
@@ -2204,529 +1756,375 @@
     flex-direction: column;
     align-items: center;
     position: relative;
-    z-index: 1;
-    transition: all 0.3s ease;
+    z-index: 2;
+    padding: 0 5px;
   }
   
   .step-icon {
-    width: 32px;
-    height: 32px;
+    background-color: #e5e7eb;
+    color: #6b7280;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
-    background-color: #e2e8f0;
-    color: #64748b;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 600;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-    transition: all 0.3s ease;
-    border: 2px solid #e2e8f0;
-  }
-  
-  .step-label {
-    font-size: 0.8rem;
-    color: #64748b;
     font-weight: 500;
+    font-size: 12px;
     transition: all 0.3s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
   
-  .progress-line {
-    height: 3px;
-    width: 80px;
-    background-color: #e2e8f0;
-    margin: 0 0.5rem;
-    margin-bottom: 2rem;
-    transition: all 0.3s ease;
-    position: relative;
-  }
-  
-  /* Active state */
   .progress-step.active .step-icon {
     background-color: #3b82f6;
     color: white;
-    transform: scale(1.1);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
-    border-color: #3b82f6;
+  }
+  
+  .progress-step.complete .step-icon {
+    background-color: #3b82f6;
+    color: white;
+  }
+  
+  .step-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #6b7280;
+    margin-top: 6px;
+    text-align: center;
   }
   
   .progress-step.active .step-label {
-    color: #3b82f6;
+    color: #111827;
     font-weight: 600;
   }
   
-  /* Complete state */
-  .progress-step.complete .step-icon {
-    background-color: #10b981;
-    color: white;
-    border-color: #10b981;
-  }
-  
-  .progress-step.complete .step-label {
-    color: #10b981;
+  .progress-line {
+    flex: 1;
+    height: 2px;
+    background-color: #e5e7eb;
+    margin: 0 10px;
+    position: relative;
+    top: -12px;
+    z-index: 1;
+    transition: background-color 0.3s ease;
   }
   
   .progress-line.active {
     background-color: #3b82f6;
   }
-  
-  /* Small screen adjustments */
-  @media (max-width: 640px) {
-    .progress-line {
-      width: 40px;
-    }
-    
-    .step-label {
-      font-size: 0.7rem;
-    }
-    
-    .step-icon {
-      width: 28px;
-      height: 28px;
-      font-size: 0.8rem;
-    }
-  }
 
-  /* Mobile menu enhancements */
-  .mobile-menu {
-    position: fixed;
-    top: 60px;
-    left: 0;
-    right: 0;
-    background: white;
-    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
-    padding: 1rem;
-    z-index: 999;
-    transform: translateY(-100%);
-    opacity: 0;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    border-bottom: 2px solid #3b82f6;
-  }
-  
-  .mobile-menu.open {
-    transform: translateY(0);
-    opacity: 1;
-  }
-  
-  .mobile-menu ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  
-  .mobile-menu li {
-    margin: 0.5rem 0;
-  }
-  
-  .mobile-menu a {
-    display: block;
-    padding: 0.75rem 1rem;
-    text-decoration: none;
-    color: #4b5563;
+  /* Modern buttons */
+  .btn {
+    font-size: 15px;
     font-weight: 500;
+    padding: 10px 16px;
     border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     transition: all 0.2s ease;
   }
   
-  .mobile-menu a:hover {
+  .btn-primary {
+    background-color: #6366f1;
+    color: white;
+  }
+  
+  .btn-primary:hover {
+    background-color: #4f46e5;
+  }
+  
+  .btn-secondary {
     background-color: #f3f4f6;
-    color: #2563eb;
+    color: #4b5563;
   }
   
-  .mobile-menu a.active {
-    background-color: #eff6ff;
-    color: #2563eb;
+  .btn-secondary:hover {
+    background-color: #e5e7eb;
+    color: #1f2937;
+  }
+
+  /* Upload section */
+  .upload-container, .camera-container {
+    background-color: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    margin-bottom: 24px;
+    margin-top: 40px;
+  }
+  
+  .upload-header, .camera-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .upload-title, .camera-title {
+    font-size: 18px;
     font-weight: 600;
+    margin: 0;
+    color: #111827;
   }
   
-  .mobile-menu-toggle {
+  .upload-content, .camera-content {
+    padding: 20px;
+  }
+  
+  .dropzone {
+    border: 2px dashed #e5e7eb;
+    border-radius: 12px;
+    padding: 50px 16px;
+    text-align: center;
+    background-color: #f9fafb;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 20px;
+    position: relative;
+    z-index: 5;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.03);
+  }
+  
+  .dropzone:hover, .dropzone.dragover {
+    border-color: #6366f1;
+    background-color: #f5f3ff;
+  }
+  
+  .dropzone-icon {
+    font-size: 40px;
+    color: #9ca3af;
+    margin-bottom: 16px;
+  }
+  
+  .dropzone:hover .dropzone-icon {
+    color: #6366f1;
+  }
+  
+  .dropzone-text {
+    font-size: 16px;
+    font-weight: 500;
+    color: #6b7280;
+  }
+  
+  .dropzone-subtext {
+    font-size: 14px;
+    color: #9ca3af;
+    margin-top: 8px;
+  }
+  
+  /* Camera UI */
+  .camera-preview {
+    width: 100%;
+    aspect-ratio: 4/3;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    background-color: #f3f4f6;
+  }
+  
+  .camera-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  
+  .camera-controls {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  
+  .camera-error {
     display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 20px;
+    text-align: center;
+    color: #ef4444;
+  }
+  
+  .camera-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 20px;
+  }
+  
+  .camera-tabs {
+    display: flex;
     justify-content: space-between;
-    width: 24px;
-    height: 18px;
-    background: transparent;
+    margin-bottom: 16px;
+  }
+  
+  .tab-button {
+    background-color: #f3f4f6;
     border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #4b5563;
     cursor: pointer;
-    padding: 0;
+    transition: all 0.2s ease;
+    flex: 1;
+    text-align: center;
+  }
+  
+  .tab-button.active {
+    background-color: #6366f1;
+    color: white;
+  }
+  
+  .tab-icon {
+    margin-right: 8px;
+  }
+  
+  .live-scan-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Results display */
+  .result-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    margin-bottom: 24px;
+    margin-top: 30px;
+  }
+  
+  .result-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  
+  .result-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    color: #111827;
+  }
+  
+  .result-content {
+    padding: 20px;
+  }
+  
+  .result-panels {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  
+  @media (min-width: 640px) {
+    .result-panels {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  @media (min-width: 768px) {
+    .result-panels {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+  
+  .result-panel {
+    background-color: #f9fafb;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  
+  .result-icon {
+    font-size: 24px;
+    margin-bottom: 12px;
+    color: #6366f1;
+  }
+  
+  .result-panel h3 {
+    font-size: 14px;
+    font-weight: 500;
+    color: #6b7280;
+    margin: 0 0 8px;
+  }
+  
+  .result-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+  }
+  
+  .speak-panel {
+    background-color: #f5f3ff;
+    border: 1px solid #e0d7ff;
+  }
+  
+  .speak-panel .result-icon {
+    color: #6366f1;
+  }
+  
+  .speak-panel .result-value {
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
+  }
+  
+  /* Loading indicator */
+  .processing-indicator {
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
     z-index: 1000;
   }
   
-  .mobile-menu-toggle span {
-    width: 100%;
-    height: 2px;
-    background-color: #4b5563;
-    transition: all 0.3s ease;
-    transform-origin: left center;
-  }
-  
-  .mobile-menu-toggle[aria-expanded="true"] span:first-child {
-    transform: rotate(45deg);
-    background-color: #2563eb;
-  }
-  
-  .mobile-menu-toggle[aria-expanded="true"] span:nth-child(2) {
-    opacity: 0;
-  }
-  
-  .mobile-menu-toggle[aria-expanded="true"] span:last-child {
-    transform: rotate(-45deg);
-    background-color: #2563eb;
-  }
-  
-  @media (min-width: 1024px) {
-    .main-nav {
-      display: block;
-    }
-    
-    .mobile-menu-toggle {
-      display: none;
-    }
-  }
-
-  /* Enhanced currency details styles */
-  .currency-details {
-    margin-top: 2rem;
-    background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
-    border-radius: 16px;
-    padding: 1.5rem;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(226, 232, 240, 0.8);
-  }
-  
-  .details-header {
-    font-size: 1.25rem;
-    color: #334155;
-    margin-bottom: 1.25rem;
-    position: relative;
-    padding-bottom: 0.75rem;
-  }
-  
-  .details-header::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 60px;
-    height: 3px;
-    background: linear-gradient(to right, #3b82f6, #60a5fa);
-    border-radius: 3px;
-  }
-  
-  .details-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 1.25rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .detail-item {
-    background-color: white;
-    border-radius: 12px;
-    padding: 1.25rem;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(226, 232, 240, 0.5);
+  .processing-content {
     display: flex;
-    align-items: flex-start;
-    transition: all 0.3s ease;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 255, 255, 0.9);
+    border-radius: 16px;
+    padding: 32px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    max-width: 320px;
+    width: 90%;
   }
   
-  .detail-item:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
-  }
-  
-  .detail-icon {
-    font-size: 1.75rem;
-    margin-right: 1rem;
-    color: #3b82f6;
-    background: rgba(219, 234, 254, 0.3);
+  .spinner {
     width: 48px;
     height: 48px;
-    min-width: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 12px;
-  }
-  
-  .detail-content {
-    flex: 1;
-  }
-  
-  .detail-content h4 {
-    margin: 0 0 0.5rem;
-    color: #64748b;
-    font-size: 0.875rem;
-    font-weight: 600;
-  }
-  
-  .detail-content p {
-    margin: 0;
-    color: #334155;
-    font-size: 1.125rem;
-    font-weight: 600;
-  }
-  
-  .detail-note {
-    display: block;
-    font-size: 0.75rem;
-    color: #94a3b8;
-    margin-top: 0.25rem;
-    font-weight: normal;
-  }
-  
-  .security-features {
-    margin: 0.5rem 0 0;
-    padding: 0 0 0 1.25rem;
-  }
-  
-  .security-features li {
-    margin-bottom: 0.25rem;
-    color: #334155;
-    font-size: 0.9rem;
-  }
-  
-  .detail-panel {
-    background-color: white;
-    border-radius: 12px;
-    padding: 1.25rem;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(226, 232, 240, 0.5);
-  }
-  
-  .detail-panel h4 {
-    margin: 0 0 1rem;
-    color: #64748b;
-    font-size: 0.875rem;
-    font-weight: 600;
-  }
-  
-  .text-panel {
-    background-color: #f8fafc;
-    border-radius: 8px;
-    padding: 1rem;
-    border: 1px solid #e2e8f0;
-    max-height: 200px;
-    overflow-y: auto;
-  }
-  
-  .text-panel p {
-    margin: 0;
-    color: #475569;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    word-break: break-word;
-    font-family: monospace;
-    white-space: pre-wrap;
-  }
-  
-  .action-bar {
-    display: flex;
-    justify-content: center;
-    margin: 1.5rem 0;
-    padding: 0 1rem;
-  }
-  
-  .action-buttons {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  
-  .action-button {
-    background-color: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 0.5rem 1rem;
-    color: #64748b;
-    font-size: 0.875rem;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: all 0.2s ease;
-    cursor: pointer;
-  }
-  
-  .action-button:hover {
-    background-color: #f1f5f9;
-    color: #3b82f6;
-    transform: translateY(-2px);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-  }
-  
-  .action-icon {
-    font-size: 1.25rem;
-  }
-  
-  @media (max-width: 768px) {
-    .details-grid {
-      grid-template-columns: 1fr;
-    }
-    
-    .action-buttons {
-      width: 100%;
-    }
-    
-    .action-button {
-      flex: 1;
-      justify-content: center;
-    }
-  }
-
-  /* Enhanced upload styles */
-  .upload-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    margin-bottom: 2rem;
-  }
-  
-  .upload-box {
-    width: 100%;
-    max-width: 500px;
-    height: 240px;
-    border: 2px dashed #93c5fd;
-    border-radius: 16px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background-color: rgba(219, 234, 254, 0.3);
-    padding: 2rem;
-    position: relative;
-    transition: all 0.3s ease;
-    cursor: pointer;
-    overflow: hidden;
-  }
-  
-  .upload-box:hover, .upload-box.dragover {
-    border-color: #3b82f6;
-    transform: translateY(-5px);
-    box-shadow: 0 10px 25px rgba(37, 99, 235, 0.15);
-    background-color: rgba(219, 234, 254, 0.5);
-  }
-  
-  .upload-box label {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  
-  .upload-icon-container {
-    width: 80px;
-    height: 80px;
-    background: rgba(59, 130, 246, 0.1);
+    border: 4px solid #f3f4f6;
+    border-top: 4px solid #6366f1;
     border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 1.5rem;
-    position: relative;
-    overflow: hidden;
-    border: 2px solid rgba(59, 130, 246, 0.2);
-    transition: all 0.3s ease;
-  }
-  
-  .upload-box:hover .upload-icon-container {
-    background: rgba(59, 130, 246, 0.2);
-    transform: scale(1.1);
-    border-color: rgba(59, 130, 246, 0.4);
-  }
-  
-  .upload-icon {
-    width: 40px;
-    height: 40px;
-    color: #3b82f6;
-    position: relative;
-    z-index: 2;
-    transition: all 0.3s ease;
-  }
-  
-  .upload-box:hover .upload-icon {
-    transform: scale(1.1);
-    color: #2563eb;
-  }
-  
-  .upload-animation {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, transparent 70%);
-    transform: scale(0);
-    opacity: 0;
-    transition: all 0.5s ease;
-  }
-  
-  .upload-box:hover .upload-animation {
-    transform: scale(2);
-    opacity: 1;
-    animation: pulse-upload 2s infinite;
-  }
-  
-  @keyframes pulse-upload {
-    0% { transform: scale(0.8); opacity: 0.3; }
-    50% { transform: scale(1.2); opacity: 0.7; }
-    100% { transform: scale(0.8); opacity: 0.3; }
-  }
-  
-  .upload-text {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 1rem;
-  }
-  
-  .upload-primary {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #3b82f6;
-    margin-bottom: 0.5rem;
-  }
-  
-  .upload-secondary {
-    font-size: 0.9rem;
-    color: #64748b;
-  }
-  
-  .upload-box input[type="file"] {
-    width: 0.1px;
-    height: 0.1px;
-    opacity: 0;
-    overflow: hidden;
-    position: absolute;
-    z-index: -1;
-  }
-  
-  .upload-box.uploading {
-    background-color: rgba(219, 234, 254, 0.8);
-    border-color: #60a5fa;
-  }
-  
-  .upload-progress {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 1rem;
-  }
-  
-  .progress-circle {
-    width: 24px;
-    height: 24px;
-    border: 3px solid rgba(59, 130, 246, 0.2);
-    border-top-color: #3b82f6;
-    border-radius: 50%;
-    margin-right: 0.75rem;
     animation: spin 1s linear infinite;
+    margin-bottom: 20px;
   }
   
   @keyframes spin {
@@ -2734,273 +2132,58 @@
     100% { transform: rotate(360deg); }
   }
   
-  .currency-examples {
-    margin-top: 2rem;
-    width: 100%;
-  }
-  
-  .currency-examples h3 {
-    font-size: 1.1rem;
-    color: #334155;
-    margin-bottom: 1rem;
-    text-align: center;
-  }
-  
-  .example-images {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    margin-bottom: 1.5rem;
-    flex-wrap: wrap;
-  }
-  
-  .example-image {
-    width: 160px;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
-    position: relative;
-  }
-  
-  .example-image:hover {
-    transform: scale(1.05);
-    box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
-  }
-  
-  .example-image img {
-    width: 100%;
-    height: auto;
-    display: block;
-  }
-  
-  .example-label {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(0, 0, 0, 0.7);
-    color: white;
-    font-size: 0.8rem;
-    padding: 0.3rem 0.5rem;
-    text-align: center;
-  }
-  
-  .upload-tips {
-    background-color: #f8fafc;
-    border-radius: 10px;
-    padding: 1rem;
-    border: 1px solid #e2e8f0;
-  }
-  
-  .upload-tips h4 {
-    font-size: 0.9rem;
-    color: #334155;
-    margin: 0 0 0.5rem 0;
-  }
-  
-  .upload-tips ul {
-    margin: 0;
-    padding-left: 1.5rem;
-  }
-  
-  .upload-tips li {
-    font-size: 0.85rem;
-    color: #475569;
-    margin-bottom: 0.25rem;
-  }
-  
-  /* Media queries */
-  @media (min-width: 768px) {
-    .upload-section-layout {
-      display: grid;
-      grid-template-columns: 3fr 2fr;
-      gap: 2rem;
-      align-items: start;
-    }
-    
-    .currency-examples {
-      margin-top: 0;
-    }
-  }
-  
-  @media (max-width: 767px) {
-    .upload-box {
-      height: 200px;
-      padding: 1.5rem;
-    }
-    
-    .upload-icon-container {
-      width: 60px;
-      height: 60px;
-      margin-bottom: 1rem;
-    }
-    
-    .upload-icon {
-      width: 30px;
-      height: 30px;
-    }
-    
-    .example-image {
-      width: 130px;
-    }
-  }
-
-  /* Add these styles to the <style> section */
-  .progress-bar-container {
-    width: 100%;
-    height: 8px;
-    background-color: rgba(226, 232, 240, 0.6);
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 0.5rem;
+  .processing-text {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 16px;
   }
   
   .progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    width: 100%;
+    height: 8px;
+    background-color: #e5e7eb;
     border-radius: 4px;
-    transition: width 0.3s ease;
-    box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+    overflow: hidden;
+    margin-top: 12px;
   }
   
-  .upload-box.dragover {
-    border-color: #2563eb;
-    background-color: rgba(219, 234, 254, 0.7);
-    transform: translateY(-5px) scale(1.02);
-    box-shadow: 0 15px 30px rgba(37, 99, 235, 0.2);
-  }
-  
-  .upload-box.dragover .upload-icon-container {
-    background: rgba(59, 130, 246, 0.3);
-    transform: scale(1.1);
-  }
-  
-  .upload-box.dragover .upload-primary {
-    color: #2563eb;
+  .progress-bar-inner {
+    height: 100%;
+    background-color: #6366f1;
+    border-radius: 4px;
+    transition: width 0.3s ease-in-out;
   }
 
-  /* Add these styles to the <style> section */
-  .preview-container {
-    width: 160px;
-    height: 160px;
-    margin-bottom: 1.5rem;
-    border-radius: 10px;
-    overflow: hidden;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    position: relative;
-    transition: all 0.3s ease;
-    border: 3px solid #60a5fa;
+  /* Image controls and display */
+  .scanned-image-container {
+    margin-bottom: 24px;
   }
   
-  .preview-container.complete {
-    border-color: #10b981;
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+  .image-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 12px;
   }
   
-  .preview-image {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    background-color: #f1f5f9;
-  }
-  
-  .success-icon {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(16, 185, 129, 0.7);
+  .image-control-btn {
+    background-color: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
-    animation: fade-in 0.5s ease;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s ease;
   }
   
-  @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  /* Add these accessibility-focused styles */
-  
-  /* Focus styling */
-  .upload-box:focus {
-    outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3);
-  }
-  
-  /* Improved keyboard navigation indicators */
-  .upload-box:focus-visible {
-    outline: 2px solid #2563eb;
-    outline-offset: 2px;
-  }
-  
-  /* Make the file input more accessible to screen readers */
-  .upload-box input[type="file"] {
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    overflow: hidden;
-    position: absolute;
-    z-index: -1;
-  }
-  
-  /* Add aria-live region styling for status updates */
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  
-  /* High contrast mode support */
-  @media (forced-colors: active) {
-    .upload-box {
-      border: 2px solid CanvasText;
-    }
-    
-    .upload-box:focus {
-      outline: 2px solid Highlight;
-      outline-offset: 2px;
-    }
-    
-    .preview-container {
-      border: 2px solid CanvasText;
-    }
-  }
-
-  /* Results Section Styling */
-  .results-container {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 2rem;
-    margin-bottom: 2rem;
-  }
-  
-  @media (min-width: 768px) {
-    .results-container {
-      grid-template-columns: minmax(0, 1fr) 300px;
-      align-items: start;
-    }
-  }
-  
-  .scanned-image-container {
-    background-color: #f8fafc;
-    border-radius: 12px;
-    padding: 1rem;
-    position: relative;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-    border: 1px solid #e2e8f0;
-    overflow: hidden;
+  .image-control-btn:hover {
+    background-color: #e5e7eb;
+    color: #1f2937;
   }
   
   .image-wrapper {
@@ -3011,90 +2194,11 @@
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    background: rgba(0, 0, 0, 0.02);
-    border-radius: 8px;
+    background-color: #f3f4f6;
+    border-radius: 12px;
+    margin-bottom: 16px;
   }
   
-  .scanned-image {
-    max-width: 100%;
-    max-height: 280px;
-    object-fit: contain;
-    transition: transform 0.3s ease;
-    transform-origin: center;
-  }
-  
-  .image-controls {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-  }
-  
-  .image-control-btn {
-    background-color: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #64748b;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  
-  .image-control-btn:hover {
-    background-color: #e2e8f0;
-    color: #334155;
-  }
-  
-  .image-decoration {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 6px;
-    background: linear-gradient(90deg, #3b82f6, #60a5fa);
-    opacity: 0.5;
-  }
-  
-  .results-details {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .result-panel {
-    background: white;
-    border-radius: 10px;
-    padding: 1rem;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-    border: 1px solid #e2e8f0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  
-  .result-icon {
-    font-size: 1.5rem;
-    margin-bottom: 0.25rem;
-  }
-  
-  .result-panel h3 {
-    font-size: 0.9rem;
-    color: #64748b;
-    margin: 0;
-    font-weight: 600;
-  }
-  
-  .result-value {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #334155;
-  }
-
-  /* Add the following CSS to the style section */
   .image-wrapper.fullscreen {
     position: fixed;
     top: 0;
@@ -3111,12 +2215,18 @@
     align-items: center;
     justify-content: center;
   }
-
+  
   .image-wrapper.fullscreen .scanned-image {
     max-width: 90%;
     max-height: 80vh;
   }
-
+  
+  .scanned-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  
   .close-fullscreen {
     position: absolute;
     top: 1rem;
@@ -3133,63 +2243,194 @@
     cursor: pointer;
     transition: background-color 0.2s ease;
   }
-
+  
   .close-fullscreen:hover {
     background-color: rgba(255, 255, 255, 0.3);
   }
-
-  .image-instructions {
-    text-align: center;
-    font-size: 0.8rem;
-    color: #64748b;
-    margin-top: 0.75rem;
+  
+  /* Currency details */
+  .currency-details {
+    background-color: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    margin-top: 24px;
   }
-
-  @media (max-width: 640px) {
-    .image-controls {
-      flex-wrap: wrap;
-    }
-    
-    .image-control-btn {
-      width: 28px;
-      height: 28px;
-    }
-    
-    .image-wrapper {
-      height: 240px;
-    }
-    
-    .scanned-image {
-      max-height: 220px;
-    }
-  }
-
-  /* Add styles for accessibility controls */
+  
   .details-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    margin: 0 0 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
   }
   
-  .accessibility-controls {
+  .details-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  @media (min-width: 640px) {
+    .details-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  
+  .detail-item {
     display: flex;
+    gap: 16px;
+    padding: 16px;
+    background-color: #f9fafb;
+    border-radius: 12px;
+  }
+  
+  .detail-icon {
+    font-size: 24px;
+    color: #6366f1;
+  }
+  
+  .detail-content {
+    flex: 1;
+  }
+  
+  .detail-content h4 {
+    font-size: 14px;
+    font-weight: 500;
+    color: #6b7280;
+    margin: 0 0 4px;
+  }
+  
+  .detail-content p {
+    font-size: 16px;
+    font-weight: 500;
+    color: #111827;
+    margin: 0;
+  }
+  
+  /* Exchange rate selector styles */
+  .exchange-rate-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .currency-selector {
+    display: flex;
+    align-items: center;
     gap: 8px;
-  }
-
-  /* Speak panel styles */
-  .speak-panel {
-    background-color: #f0f9ff;
-    border-color: #bae6fd;
+    margin-bottom: 5px;
   }
   
-  .speak-panel .result-icon {
-    color: #0284c7;
+  .currency-selector label {
+    font-size: 14px;
+    color: #6b7280;
+    font-weight: 500;
   }
   
-  .speak-panel .result-value {
+  .currency-select {
+    background-color: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 14px;
+    color: #1f2937;
+    font-weight: 500;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+  
+  .currency-select:hover {
+    border-color: #d1d5db;
+  }
+  
+  .currency-select:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  }
+  
+  .currency-select option:disabled {
+    color: #9ca3af;
+    font-style: italic;
+  }
+  
+  .conversion-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  
+  .conversion-from {
+    font-size: 14px;
+    font-weight: 600;
+    color: #4b5563;
+    margin: 0;
+    background: #f3f4f6;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  
+  .conversion-arrow {
+    color: #6366f1;
+    font-weight: bold;
+  }
+  
+  /* Action bar */
+  .action-bar {
     display: flex;
     justify-content: center;
-    margin-top: 8px;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  
+  .action-buttons {
+    display: flex;
+    gap: 12px;
+  }
+  
+  .action-button {
+    background-color: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #4b5563;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  
+  .action-button:hover {
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+    color: #111827;
+  }
+  
+  .action-icon {
+    font-size: 18px;
+  }
+  
+  /* Card footer */
+  .card-footer {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+    padding: 0 20px 20px;
   }
 </style>
   
