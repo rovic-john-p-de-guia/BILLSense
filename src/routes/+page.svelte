@@ -660,6 +660,21 @@
     selectMethod(''); // Go back to method selection
   }
 
+  // Function to directly scan another bill without going back to method selection
+  function scanAgain(): void {
+    currentImage = null;
+    currencyValue = "Unknown";
+    billAmount = "Unknown";
+    extractedText = "No text detected";
+    targetCurrency = "USD"; // Reset target currency
+    
+    // Directly open the file upload dialog
+    const fileInput = document.getElementById('globalFileInput') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.click();
+    }
+  }
+
   // Update processImage to use the animation
   async function processImage(imageSrc: string): Promise<void> {
     try {
@@ -1376,23 +1391,12 @@
           </div>
         </div>
         
-        <div class="action-bar">
-          <div class="action-buttons">
-            <button class="action-button" title="Save this scan to history">
-              <span class="action-icon">💾</span>
-              <span>Save</span>
-            </button>
-            
-            <button class="action-button" title="Share these results">
-              <span class="action-icon">🔗</span>
-              <span>Share</span>
-            </button>
-          </div>
-        </div>
-        
         <div class="card-footer">
-          <button class="btn btn-primary" on:click={resetScan} title="Scan another bill">
-            <span class="btn-icon">🔄</span> Scan Again
+          <button class="btn btn-secondary" on:click={resetScan} title="Return to home screen">
+            <span class="btn-icon">🏠</span> Back to Home
+          </button>
+          <button class="btn btn-primary" on:click={scanAgain} title="Scan another bill">
+            <span class="btn-icon">🔄</span> Scan Another Bill
           </button>
         </div>
       </div>
@@ -1402,6 +1406,9 @@
 
 <!-- Hidden canvas for image processing -->
 <canvas bind:this={canvas} style="display: none;"></canvas>
+
+<!-- Global hidden file input for scanAgain function -->
+<input type="file" id="globalFileInput" accept="image/*" hidden on:change={handleFileUpload} />
 
 <style>
   /* Modern base styles */
