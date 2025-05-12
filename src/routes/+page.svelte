@@ -246,6 +246,7 @@
     };
   });
 
+  // Simplify the camera setup to directly show what the camera is seeing
   async function setupCamera(): Promise<void> {
     try {
       // First check if the camera is already in use by another application
@@ -254,131 +255,24 @@
         stream = null;
       }
       
-      // First check if we have permission to use the camera
-      try {
-        // Request camera permission without starting the stream
-        await navigator.mediaDevices.getUserMedia({ video: true });
-      } catch (permError) {
-        if (permError instanceof DOMException && permError.name === 'NotAllowedError') {
-          cameraErrorMessage = "Camera access denied. Please allow camera permissions in your browser settings.";
-          throw permError;
-        }
-      }
-      
-      // Now request the actual camera we want with specific constraints
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
+      // Simple direct camera access, similar to your HTML example
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
       
       if (cameraFeed) {
-        // Set video attributes
-        cameraFeed.setAttribute('autoplay', 'true');
-        cameraFeed.setAttribute('playsinline', 'true');
-        cameraFeed.setAttribute('muted', 'true');
-        
-        // Set srcObject
         cameraFeed.srcObject = stream;
-        
-        // Wait for metadata before playing
-        cameraFeed.onloadedmetadata = () => {
-          if (cameraFeed) {
-            // Force play with a slight delay
-            setTimeout(() => {
-              cameraFeed?.play()
-                .then(() => {
-                  console.log("Camera playing successfully");
-                  showCamera = true;
-                  cameraError = false;
-                })
-                .catch(e => {
-                  console.error("Error playing video:", e);
-                  cameraError = true;
-                  cameraErrorMessage = "Error starting video stream. Please try again.";
-                });
-            }, 500);
-          }
-        };
+        cameraFeed.play(); // Explicitly play the video
       } else {
         throw new Error("Camera feed element not found");
       }
     } catch (error) {
       console.error("Camera access error:", error);
       cameraError = true;
-      
-      // More detailed error messages based on the error
-      if (error instanceof DOMException) {
-        if (error.name === 'NotAllowedError') {
-          cameraErrorMessage = "Camera access denied. Please check your browser permissions and try again.";
-        } else if (error.name === 'NotFoundError') {
-          cameraErrorMessage = "No camera found on your device.";
-        } else if (error.name === 'NotReadableError') {
-          cameraErrorMessage = "Camera is already in use by another application or browser tab.";
-        } else if (error.name === 'OverconstrainedError') {
-          cameraErrorMessage = "Camera doesn't support the requested resolution or settings.";
-        } else if (error.name === 'AbortError') {
-          cameraErrorMessage = "Camera access was aborted. Please try again.";
-        } else if (error.name === 'SecurityError') {
-          cameraErrorMessage = "Camera access is blocked due to security restrictions.";
-        } else {
-          cameraErrorMessage = `Camera error: ${error.message}`;
-        }
-      } else {
-        cameraErrorMessage = "Could not access camera. Please ensure camera permissions are granted.";
-      }
-      
-      // Re-throw to be caught by toggleCamera
+      cameraErrorMessage = "Could not access camera. Please ensure camera permissions are granted.";
       throw error;
     }
   }
 
-  // Add a fallback camera implementation
-  async function tryFallbackCamera(): Promise<void> {
-    try {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-      }
-      
-      // Try with very basic constraints
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true,
-        audio: false
-      });
-      
-      if (cameraFeed) {
-        cameraFeed.srcObject = stream;
-        
-        // Set attributes directly
-        cameraFeed.setAttribute('autoplay', '');
-        cameraFeed.setAttribute('playsinline', '');
-        cameraFeed.setAttribute('muted', '');
-        
-        // Manually trigger play after a short delay
-        setTimeout(() => {
-          cameraFeed?.play()
-            .then(() => {
-              console.log("Fallback camera playing successfully");
-              showCamera = true;
-              cameraError = false;
-            })
-            .catch(e => {
-              throw e;
-            });
-        }, 500);
-      } else {
-        throw new Error("Camera feed element not found");
-      }
-    } catch (error) {
-      console.error("Fallback camera failed:", error);
-      throw error;
-    }
-  }
-
+  // Simplify toggleCamera to directly show the camera feed
   async function toggleCamera(): Promise<void> {
     if (showCamera) {
       // Turn off camera
@@ -387,46 +281,20 @@
         stream = null;
       }
       showCamera = false;
-      cameraFeed = null;
     } else {
-      // Turn on camera
-      async function startCamera() {
-        try {
-          // Reset any previous camera errors
-          cameraError = false;
-          cameraErrorMessage = "";
-          processing = true;
-          
-          // Stop any existing stream
-          if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
-          }
-          
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          
-          // Make sure cameraFeed is available (should be bound by Svelte)
-          if (cameraFeed) {
-            cameraFeed.srcObject = stream;
-            resetProcessingState();
-          } else {
-            throw new Error("Camera feed element not found");
-          }
-        } catch (error) {
-          console.error("Error accessing camera:", error);
-          cameraError = true;
-          
-          if (error instanceof Error) {
-            cameraErrorMessage = "Could not access the camera: " + error.message;
-          } else {
-            cameraErrorMessage = "Could not access the camera. Please check your permissions.";
-          }
-          resetProcessingState();
-        }
-      }
+      // Turn on camera - set showCamera first so the video element is in the DOM
+      showCamera = true;
       
-      // Start camera immediately (no delay)
-      startCamera();
+      // Wait for UI to update and video element to be available
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      try {
+        // Simple direct camera setup without all the extra processing state
+        await setupCamera();
+      } catch (error) {
+        console.error("Error accessing camera:", error);
+        cameraError = true;
+      }
     }
   }
 
@@ -441,7 +309,7 @@
       }
       liveScanMode = false;
     } else {
-      // Turn on live scanning
+      // Turn on live scanning - only when explicitly requested
       liveScanMode = true;
       scanningInterval = setInterval(scanFrame, 1000) as unknown as number;
     }
@@ -566,27 +434,96 @@
     };
   }
 
-  async function captureImage(): Promise<void> {
-    if (!cameraFeed || !canvas || processing) return;
+  // Make sure the camera feed is properly displayed
+  function startCameraPreview(): void {
+    if (showCamera) return;
     
-    processing = true;
-    startProcessingAnimation();
+    showCamera = true;
+    cameraError = false;
+    cameraErrorMessage = "";
     
-    const context = canvas.getContext('2d');
-    if (!context) {
-      resetProcessingState();
-      return;
-    }
-    
-    canvas.width = cameraFeed.videoWidth;
-    canvas.height = cameraFeed.videoHeight;
-    context.drawImage(cameraFeed, 0, 0, canvas.width, canvas.height);
+    // Use setTimeout to allow the DOM to update before accessing the camera
+    setTimeout(async () => {
+      try {
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          stream = null;
+        }
+        
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+        
+        if (cameraFeed) {
+          cameraFeed.srcObject = stream;
+        } else {
+          cameraError = true;
+          cameraErrorMessage = "Camera feed element not found";
+        }
+      } catch (error) {
+        console.error("Camera access error:", error);
+        cameraError = true;
+        
+        if (error instanceof Error) {
+          cameraErrorMessage = "Camera error: " + error.message;
+        } else {
+          cameraErrorMessage = "Failed to access camera";
+        }
+      }
+      }, 100);
+  }
 
-    const imageData = canvas.toDataURL('image/png');
-    currentImage = imageData; // Store the captured image
-    await processImage(imageData);
+  // Updated capture image function
+  async function captureImage(): Promise<void> {
+    if (!cameraFeed || !canvas) return;
     
-    resetProcessingState();
+    // Prevent multiple processing
+    if (processing) return;
+    
+      processing = true;
+      startProcessingAnimation();
+    
+    try {
+      // Setup canvas with video dimensions
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error("Could not get canvas context");
+      }
+      
+      canvas.width = cameraFeed.videoWidth;
+      canvas.height = cameraFeed.videoHeight;
+      
+      // Capture current video frame
+      context.drawImage(cameraFeed, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to image data
+      const imageData = canvas.toDataURL('image/png');
+      currentImage = imageData;
+      
+      // Turn off camera after capture
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      
+      showCamera = false;
+      
+      // Process the captured image
+      await processImage(imageData);
+    } catch (error) {
+      console.error("Error capturing image:", error);
+      if (error instanceof Error) {
+        extractedText = "Error capturing: " + error.message;
+      } else {
+        extractedText = "Error capturing image";
+      }
+    } finally {
+      resetProcessingState();
+    }
   }
 
   async function handleFileUpload(event: Event): Promise<void> {
@@ -634,6 +571,10 @@
       // Set a slight delay to allow UI to render first
       setTimeout(() => {
         toggleCamera();
+        // Remove automatic live scan mode activation - let user choose explicitly
+        // By default, use photo mode not live mode
+        cameraMode = 'photo';
+        liveScanMode = false;
       }, 100);
     }
   }
@@ -641,9 +582,12 @@
   function setCameraMode(mode: string): void {
     cameraMode = mode;
     
-    // If switching to live mode, automatically start live scanning
-    if (mode === 'live' && showCamera && stream && !liveScanMode) {
-      toggleLiveScan();
+    // If switching to live mode, DON'T automatically start live scanning
+    // Let the user press a specific button to start scanning
+    if (mode === 'live' && showCamera && stream) {
+      // Don't auto-start: toggleLiveScan();
+      // Instead, just prepare for live mode but wait for user to press scan
+      liveScanMode = false;
     }
     // If switching to photo mode, stop live scanning
     else if (mode === 'photo' && liveScanMode) {
@@ -675,12 +619,17 @@
     }
   }
 
-  // Update processImage to use the animation
+  // Add variables to distinguish between coins and bills
+  let isCoin = false;
+  let coinMatchDetails = "";
+
+  // Update processImage function to better detect coins
   async function processImage(imageSrc: string): Promise<void> {
     try {
       extractedText = "Processing...";
       processing = true;
       startProcessingAnimation();
+      isCoin = false; // Reset coin detection
       
       if (!puterLoaded) {
         extractedText = "Puter.js is not loaded yet";
@@ -688,7 +637,6 @@
         return;
       }
       
-      // Use any to bypass TypeScript checks for dynamically loaded script
       const puter = (window as any).puter;
       if (!puter || !puter.ai || !puter.ai.img2txt) {
         extractedText = "Puter.js API is not available";
@@ -696,20 +644,118 @@
         return;
       }
       
-      const result = await puter.ai.img2txt(imageSrc);
-      console.log("Extracted text from image:", result);
-      extractedText = result || "No text found";
-      detectCurrencyAndAmount(extractedText);
-    } catch (error: unknown) {
+      // First check if the image is likely a coin
+      const isCircular = await isCircularImage(imageSrc);
+      
+      if (isCircular) {
+        // It looks like a coin
+        isCoin = true;
+        
+        // Specific prompt for Philippine peso coins
+        const coinPrompt = "This is a Philippine peso coin. Look carefully for the denomination (1, 5, 10 pesos) and text like 'REPUBLIKA NG PILIPINAS', 'PISO', year numbers, and portraits of Filipino heroes like Bonifacio or Rizal.";
+        
+        const result = await puter.ai.img2txt(imageSrc, { prompt: coinPrompt });
+        console.log("Extracted text from coin:", result);
+        extractedText = result || "No text found";
+        
+        // Enhanced coin detection
+        const coinInfo = detectCoinFromText(extractedText);
+        currencyValue = coinInfo.currency;
+        billAmount = coinInfo.amount; // We'll still use billAmount but update the display label
+        
+        // Add details about the coin
+        if (extractedText.includes("2001") || extractedText.includes("BONIFACIO") || 
+            extractedText.includes("MABINI")) {
+          coinMatchDetails = "Old series 10 peso coin with Bonifacio and Mabini portraits";
+        } else if (extractedText.includes("RIZAL")) {
+          coinMatchDetails = "Philippine peso coin with Jose Rizal portrait";
+        }
+      } else {
+        // Probably a bill - use standard detection
+        const options = {
+          prompt: "This is a Philippine currency bill. Identify all text including 'BANGKO SENTRAL NG PILIPINAS' and denomination indicators."
+        };
+        
+        const result = await puter.ai.img2txt(imageSrc, options);
+        console.log("Extracted text from image:", result);
+        extractedText = result || "No text found";
+        
+        // Use your existing currency detection
+        detectCurrencyAndAmount(extractedText);
+      }
+    } catch (error) {
       if (error instanceof Error) {
         extractedText = "Error: " + error.message;
       } else {
         extractedText = "Unknown error occurred";
       }
     } finally {
-      // Stop loading animation
       resetProcessingState();
     }
+  }
+
+  // Enhanced function specifically for coin detection
+  function detectCoinFromText(text: string): { currency: string, amount: string } {
+    let currency = "Unknown";
+    let amount = "Unknown";
+    
+    // Check for Philippine Peso indicators
+    if (text.match(/PILIPINAS|PISO|REPUBLIKA|BANGKO SENTRAL/i)) {
+      currency = "PHP (Philippine Peso)";
+      
+      // Look for specific coin denominations
+      // First check for explicit denomination patterns
+      if (text.match(/10\s*PISO|SAMPUNG\s*PISO/i) || text.match(/\b10\b/) && (text.match(/PISO/i) || text.match(/BONIFACIO/i) || text.match(/MABINI/i))) {
+        amount = "10";
+      } else if (text.match(/5\s*PISO|LIMANG\s*PISO/i) || text.match(/\b5\b/) && (text.match(/PISO/i) || text.match(/AGUINALDO/i))) {
+        amount = "5";
+      } else if (text.match(/1\s*PISO|ISANG\s*PISO/i) || text.match(/\b1\b/) && (text.match(/PISO/i) || text.match(/RIZAL/i))) {
+        amount = "1";
+      }
+      
+      // If not found by explicit patterns, try historical context
+      if (amount === "Unknown") {
+        if (text.match(/BONIFACIO|ANDRES|MABINI|APOLINARIO/i)) {
+          amount = "10"; // Bonifacio and Mabini appear on 10 peso coins
+        } else if (text.match(/AGUINALDO|EMILIO/i)) {
+          amount = "5"; // Aguinaldo appears on 5 peso coins
+        } else if (text.match(/RIZAL|JOSE/i)) {
+          amount = "1"; // Rizal appears on 1 peso coins
+        }
+      }
+      
+      // Check specific years that can help identify denominations
+      if (amount === "Unknown" && text.match(/20\d\d|19\d\d/)) {
+        const yearMatch = text.match(/\b(20\d\d|19\d\d)\b/);
+        if (yearMatch) {
+          // Check if there's a number 10, 5, or 1 near the year
+          const nearContext = text.substr(Math.max(0, text.indexOf(yearMatch[0]) - 20), 40);
+          if (nearContext.match(/\b10\b/)) {
+            amount = "10";
+          } else if (nearContext.match(/\b5\b/)) {
+            amount = "5";
+          } else if (nearContext.match(/\b1\b/)) {
+            amount = "1";
+          }
+        }
+      }
+    }
+    
+    return { currency, amount };
+  }
+
+  // Simple function to check if image is circular (likely a coin)
+  async function isCircularImage(imageSrc: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        // If image is roughly square (aspect ratio close to 1), it might be a coin
+        const aspectRatio = img.width / img.height;
+        resolve(aspectRatio >= 0.9 && aspectRatio <= 1.1);
+      };
+      img.onerror = () => resolve(false);
+      img.src = imageSrc;
+    });
   }
 
   function resetProcessingState(): void {
@@ -1035,6 +1081,14 @@
       }
     }
   }
+
+  // Add a variable to track camera inversion state
+  let invertCamera: boolean = true; // Set to true by default for front-facing cameras
+
+  // Add a function to toggle camera inversion
+  function toggleCameraInversion(): void {
+    invertCamera = !invertCamera;
+  }
 </script>
 
 <svelte:head>
@@ -1191,33 +1245,41 @@
               <i class="fas fa-arrow-left"></i> Back
             </button>
           </div>
+          
           <div class="camera-content">
             {#if !showCamera}
-              <button class="btn btn-primary" on:click={toggleCamera}>
-                <i class="fas fa-camera"></i> Start Camera
+              <button class="btn btn-primary start-camera-btn" on:click={startCameraPreview}>
+                <i class="fas fa-camera"></i> Start Camera Preview
               </button>
             {:else if cameraError}
               <div class="camera-error">
                 <i class="fas fa-exclamation-triangle"></i>
                 <p>{cameraErrorMessage}</p>
-                <button class="btn btn-primary" on:click={toggleCamera}>Try Again</button>
-              </div>
-            {:else if processing}
-              <div class="camera-loading">
-                <div class="spinner"></div>
-                <p>Initializing camera...</p>
+                <button class="btn btn-primary" on:click={startCameraPreview}>Try Again</button>
               </div>
             {:else}
-              <div class="camera-preview">
-                <video bind:this={cameraFeed} autoplay playsinline></video>
+              <div class="camera-preview-container">
+                <video 
+                  bind:this={cameraFeed} 
+                  autoplay 
+                  playsinline 
+                  muted 
+                  class="camera-feed"
+                ></video>
+                
+                <!-- Simple guideline overlay -->
+                <div class="camera-guidelines">
+                  <div class="guideline-frame"></div>
+                  <div class="guideline-text">Center bill here</div>
+                </div>
+                
+                <button class="btn-capture" on:click={captureImage} disabled={processing}>
+                  <div class="btn-capture-inner"></div>
+                </button>
               </div>
-              <div class="camera-controls">
-                <button class="btn btn-secondary" on:click={toggleCamera}>
-                  <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" on:click={captureImage}>
-                  <i class="fas fa-camera"></i> Capture Image
-                </button>
+              
+              <div class="camera-hint">
+                <p>Position currency bill in view and tap the circle to capture</p>
               </div>
             {/if}
           </div>
@@ -1250,7 +1312,7 @@
               <button class="image-control-btn" on:click={() => handleImageRotation(90)} title="Rotate image">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M23 4v6h-6"></path>
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                  <path d="20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
                 </svg>
               </button>
               <button class="image-control-btn" on:click={resetImageTransforms} title="Reset image">
@@ -1264,9 +1326,9 @@
               <button class="image-control-btn" on:click={toggleFullscreen} title="View fullscreen">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M15 3h6v6"></path>
-                  <path d="M9 21H3v-6"></path>
-                  <path d="M21 3l-7 7"></path>
-                  <path d="M3 21l7-7"></path>
+                  <path d="9 21H3v-6"></path>
+                  <path d="21 3l-7 7"></path>
+                  <path d="3 21l7-7"></path>
                 </svg>
               </button>
             </div>
@@ -1294,9 +1356,12 @@
           
           <div class="result-panels">
             <div class="result-panel">
-              <div class="result-icon">💵</div>
-              <h3>Bill Value</h3>
+              <div class="result-icon">{isCoin ? '🪙' : '💵'}</div>
+              <h3>{isCoin ? 'Coin' : 'Bill'} Value</h3>
               <div class="result-value">{billAmount}</div>
+              {#if isCoin && coinMatchDetails}
+                <div class="coin-details">{coinMatchDetails}</div>
+              {/if}
             </div>
             
             <div class="result-panel">
@@ -1395,8 +1460,29 @@
           <button class="btn btn-secondary" on:click={resetScan} title="Return to home screen">
             <span class="btn-icon">🏠</span> Back to Home
           </button>
-          <button class="btn btn-primary" on:click={scanAgain} title="Scan another bill">
-            <span class="btn-icon">🔄</span> Scan Another Bill
+          
+          <button class="btn btn-primary" on:click={() => {
+            // Open file upload dialog
+            const fileInput = document.getElementById('globalFileInput') as HTMLInputElement;
+            if (fileInput) {
+              currentImage = null;
+              currencyValue = "Unknown";
+              billAmount = "Unknown";
+              extractedText = "No text detected";
+              fileInput.click();
+            }
+          }} title="Upload another bill image">
+            <span class="btn-icon">📤</span> Upload Another Bill
+          </button>
+          
+          <button class="btn btn-primary" on:click={() => {
+            currentImage = null;
+            currencyValue = "Unknown";
+            billAmount = "Unknown";
+            extractedText = "No text detected";
+            selectMethod('camera');
+          }} title="Scan another bill using camera">
+            <span class="btn-icon">📷</span> Scan Another Bill
           </button>
         </div>
       </div>
@@ -1781,8 +1867,7 @@
     transition: all 0.3s ease;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
-  
-  .progress-step.active .step-icon {
+    .progress-step.active .step-icon {
     background-color: #3b82f6;
     color: white;
   }
@@ -1932,12 +2017,15 @@
     overflow: hidden;
     position: relative;
     background-color: #f3f4f6;
+    margin-bottom: 16px;
   }
   
-  .camera-preview video {
+  .camera-feed {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block; /* Make sure it's displayed */
+    transform:  scaleX(-1);
   }
   
   .camera-controls {
@@ -2435,9 +2523,163 @@
   .card-footer {
     display: flex;
     justify-content: center;
+    flex-wrap: wrap;
     gap: 16px;
-    margin-top: 16px;
+    margin-top: 24px;
     padding: 0 20px 20px;
+  }
+  
+  @media (max-width: 640px) {
+    .card-footer {
+      flex-direction: column;
+    }
+    
+    .card-footer .btn {
+      width: 100%;
+    }
+  }
+  
+  .btn-icon {
+    margin-right: 8px;
+  }
+  
+  /* ... existing styles ... */
+  
+  .camera-preview-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    border-radius: 12px;
+    overflow: hidden;
+    background-color: #000;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .camera-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  
+  .btn-capture {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.2);
+    border: 3px solid white;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+  }
+  
+  .btn-capture-inner {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background-color: white;
+  }
+  
+  .btn-capture:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+  }
+  
+  .btn-capture:active .btn-capture-inner {
+    width: 50px;
+    height: 50px;
+  }
+  
+  .camera-hint {
+    text-align: center;
+    margin-top: 16px;
+    color: #6b7280;
+    font-size: 14px;
+  }
+  
+  .start-camera-btn {
+    margin: 32px auto;
+    display: block;
+    padding: 12px 24px;
+    font-size: 16px;
+  }
+  
+  /* Clean, simple guidelines */
+  .camera-guidelines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  
+  .guideline-frame {
+    width: 80%;
+    height: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
+    box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.2);
+  }
+  
+  .guideline-text {
+    position: absolute;
+    bottom: 20%;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 4px 12px;
+    border-radius: 16px;
+  }
+  
+  /* ... existing styles ... */
+  
+  .camera-feed.inverted {
+    transform: scaleX(-1); /* This flips the camera horizontally */
+  }
+  
+  .camera-controls {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 8px;
+  }
+  
+  .camera-control-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.4);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  
+  .camera-control-btn:hover {
+    background-color: rgba(0, 0, 0, 0.6);
+  }
+  
+  /* Add this to your existing styles */
+  .coin-details {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 4px;
   }
 </style>
   
