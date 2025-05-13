@@ -15,7 +15,7 @@ export function speak(
   text: string, 
   lang = 'en-US', 
   rate = 1, 
-  pitch = 2, 
+  pitch = 1, 
   volume = 1
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -72,7 +72,17 @@ export function formatCurrencyForSpeech(amount: string | number, currency: strin
     'JPY': 'Japanese Yen',
     'CNY': 'Chinese Yuan',
     'AUD': 'Australian Dollar',
-    'CAD': 'Canadian Dollar'
+    'CAD': 'Canadian Dollar',
+    'SGD': 'Singapore Dollar',
+    'KRW': 'South Korean Won',
+    'MXN': 'Mexican Peso',
+    'BRL': 'Brazilian Real',
+    'CHF': 'Swiss Franc',
+    'HKD': 'Hong Kong Dollar',
+    'SEK': 'Swedish Krona',
+    'ZAR': 'South African Rand',
+    'RUB': 'Russian Ruble',
+    'TRY': 'Turkish Lira'
   };
   
   // Get full currency name or use the code
@@ -86,16 +96,20 @@ export function formatCurrencyForSpeech(amount: string | number, currency: strin
  * @param amount - Bill amount
  * @param currency - Currency code
  * @param extraInfo - Additional information to announce (optional)
+ * @param rate - Speech rate (0.5 to 2, default: 1) 
+ * @param volume - Speech volume (0 to 1, default: 1)
  */
 export function announceBill(
   amount: string | number, 
   currency: string,
-  extraInfo?: string
+  extraInfo?: string,
+  rate: number = 1,
+  volume: number = 1
 ): Promise<void> {
   const formattedText = formatCurrencyForSpeech(amount, currency);
   const textToSpeak = extraInfo 
     ? `Detected ${formattedText}. ${extraInfo}` 
     : `Detected ${formattedText}.`;
   
-  return speak(textToSpeak);
+  return speak(textToSpeak, 'en-US', rate, 1, volume);
 } 

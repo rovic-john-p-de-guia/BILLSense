@@ -43,11 +43,16 @@
   // Add fullscreen image viewer state
   let isFullscreen: boolean = false;
 
-  // New variable for auto-announcing bill details
+  // Settings variables
   let autoAnnounce: boolean = false;
+  let preferredCurrency: string = "USD";
+  let speechRate: number = 1;
+  let speechVolume: number = 1;
+  let invertCamera: boolean = true;
+  let alwaysUseBackCamera: boolean = true;
   
-  // Add exchange rate target currency selection
-  let targetCurrency: string = "USD";
+  // Add exchange rate target currency selection (initially set to preferred currency)
+  let targetCurrency: string = preferredCurrency;
   
   // Common currencies for conversion
   const commonCurrencies = [
@@ -67,11 +72,45 @@
   // Updated function to go back to the method selector
   let showMethodSelector = true; // Add this variable to track the method selector visibility
   
+  // Add a state variable to track active section
+  let activeSection: string = 'home';
+  
+  // Function to navigate to a section
+  function navigateToSection(section: string): void {
+    activeSection = section;
+    
+    // Close mobile menu if open
+    if (mobileMenuOpen) {
+      mobileMenuOpen = false;
+    }
+    
+    // Scroll to top for the new section
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  
+  // Function to open settings modal
+  function openSettings(): void {
+    showSettings = true;
+    if (mobileMenuOpen) {
+      mobileMenuOpen = false;
+    }
+  }
+  
   // Add required file upload functions
   function triggerFileUpload(): void {
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     if (fileInput) {
       fileInput.click();
+    }
+  }
+
+  // Toggle camera inversion function
+  function toggleCameraInversion(): void {
+    invertCamera = !invertCamera;
+    
+    // Apply the change to the camera feed if it's active
+    if (cameraFeed && showCamera) {
+      cameraFeed.style.transform = invertCamera ? 'scaleX(-1)' : 'scaleX(1)';
     }
   }
 
@@ -228,6 +267,9 @@
     // Setup drag and drop for file upload
     setupDragDrop();
     
+    // Load settings from localStorage
+    loadSettings();
+    
     return () => {
       // Cleanup camera stream when component unmounts
       if (stream) {
@@ -244,6 +286,30 @@
       }
     };
   });
+  
+  // Function to load settings from localStorage
+  function loadSettings(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    
+    try {
+      const savedSettings = localStorage.getItem('moneyScanner.settings');
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        
+        // Update settings with saved values
+        autoAnnounce = parsedSettings.autoAnnounce ?? autoAnnounce;
+        preferredCurrency = parsedSettings.preferredCurrency ?? preferredCurrency;
+        speechRate = parsedSettings.speechRate ?? speechRate;
+        speechVolume = parsedSettings.speechVolume ?? speechVolume;
+        alwaysUseBackCamera = parsedSettings.alwaysUseBackCamera ?? alwaysUseBackCamera;
+        
+        // Set initial target currency based on preference
+        targetCurrency = preferredCurrency;
+      }
+    } catch (error) {
+      console.error('Error loading saved settings:', error);
+    }
+  }
 
   // Update the setupCamera function to better access the back camera
   async function setupCamera(): Promise<void> {
@@ -254,21 +320,31 @@
         stream = null;
       }
       
-      // Try to specifically access the back camera first with exact constraint
-      try {
+      // Try to specifically access the back camera first with exact constraint (if enabled in settings)
+      if (alwaysUseBackCamera) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { exact: "environment" }, // Explicitly request back camera
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            }
+          });
+        } catch (err) {
+          // If exact constraint fails (like on desktop), fall back to any camera
+          console.log("Couldn't access back camera specifically, falling back:", err);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: "environment", // Prefer back camera but don't require it
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          });
+        }
+      } else {
+        // Use default camera without specific back camera preference
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: { exact: "environment" }, // Explicitly request back camera
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          }
-        });
-      } catch (err) {
-        // If exact constraint fails (like on desktop), fall back to any camera
-        console.log("Couldn't access back camera specifically, falling back:", err);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment", // Prefer back camera but don't require it
             width: { ideal: 1280 },
             height: { ideal: 720 }
           }
@@ -326,6 +402,15 @@
         }
         
         await setupCamera();
+        
+        // Apply camera inversion setting
+        if (cameraFeed) {
+          if (invertCamera) {
+            cameraFeed.style.transform = 'scaleX(-1)';
+          } else {
+            cameraFeed.style.transform = 'scaleX(1)';
+          }
+        }
         
         // Show camera helper tooltip briefly
         const guidanceTooltip = document.createElement('div');
@@ -504,7 +589,8 @@
     currencyValue = "Unknown";
     billAmount = "Unknown";
     extractedText = "No text detected";
-    targetCurrency = "USD"; // Reset target currency
+    // Set target currency to user preference instead of hardcoding to USD
+    targetCurrency = preferredCurrency;
     selectMethod(''); // Go back to method selection
   }
 
@@ -613,6 +699,35 @@
         
         // Use your existing currency detection
         detectCurrencyAndAmount(extractedText);
+      }
+      
+      // Set target currency based on user preference after detection
+      targetCurrency = preferredCurrency;
+      
+      // Auto-announce the bill if enabled in settings
+      if (autoAnnounce && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        // Get issuing authority for additional info
+        const issuer = getIssuingAuthority(currencyValue);
+        let announcementText = "";
+        
+        if (currencyValue !== "Unknown" && billAmount !== "Unknown") {
+          if (isCoin) {
+            announcementText = `Detected ${billAmount} ${getCurrencyCode(currencyValue)} coin.`;
+          } else {
+            announcementText = `Detected ${billAmount} ${getCurrencyCode(currencyValue)} bill.`;
+          }
+          
+          if (issuer !== "Unknown") {
+            announcementText += ` Issued by ${issuer}.`;
+          }
+          
+          // Use speech settings
+          const utterance = new SpeechSynthesisUtterance(announcementText);
+          utterance.rate = speechRate;
+          utterance.volume = speechVolume;
+          
+          window.speechSynthesis.speak(utterance);
+        }
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -1084,11 +1199,6 @@
     }
   }
 
-  // Function to open settings modal
-  function openSettings(): void {
-    showSettings = true;
-  }
-
   function handleDragOver(event: DragEvent): void {
     const dropzone = event.currentTarget as HTMLElement;
     dropzone.classList.add('dragover');
@@ -1111,14 +1221,6 @@
         fileInput.dispatchEvent(changeEvent);
       }
     }
-  }
-
-  // Add a variable to track camera inversion state
-  let invertCamera: boolean = true; // Set to true by default for front-facing cameras
-
-  // Add a function to toggle camera inversion
-  function toggleCameraInversion(): void {
-    invertCamera = !invertCamera;
   }
 
   // Function to refresh exchange rates
@@ -1246,6 +1348,32 @@
     // In a real implementation, this would process the current frame
     // from the camera feed and detect currency in it
   }
+
+  // Function to get currency full name based on currency code
+  function getCurrencyName(currencyCode: string): string {
+    const currencyNames: Record<string, string> = {
+      'USD': 'US Dollar',
+      'EUR': 'Euro',
+      'GBP': 'British Pound',
+      'JPY': 'Japanese Yen',
+      'CNY': 'Chinese Yuan',
+      'CAD': 'Canadian Dollar',
+      'AUD': 'Australian Dollar',
+      'PHP': 'Philippine Peso',
+      'KRW': 'South Korean Won',
+      'INR': 'Indian Rupee',
+      'SGD': 'Singapore Dollar',
+      'HKD': 'Hong Kong Dollar',
+      'NZD': 'New Zealand Dollar',
+      'CHF': 'Swiss Franc',
+      'MXN': 'Mexican Peso',
+      'BRL': 'Brazilian Real',
+      'THB': 'Thai Baht',
+      'ZAR': 'South African Rand'
+    };
+    
+    return currencyNames[currencyCode] || currencyCode;
+  }
 </script>
 
 <svelte:head>
@@ -1257,6 +1385,11 @@
 <SettingsModal 
   bind:show={showSettings}
   bind:autoAnnounce={autoAnnounce}
+  bind:preferredCurrency={preferredCurrency}
+  bind:speechRate={speechRate}
+  bind:speechVolume={speechVolume}
+  bind:invertCamera={invertCamera}
+  bind:alwaysUseBackCamera={alwaysUseBackCamera}
 />
 
 <div class="container">
@@ -1274,9 +1407,9 @@
       </div>
       <nav class="main-nav">
         <ul>
-          <li><a href="/" class="active">Home</a></li>
-          <li><a href="#currencies">Currencies</a></li>
-          <li><a href="#settings" on:click={openSettings}>Settings</a></li>
+          <li><a href="#" class={activeSection === 'home' ? 'active' : ''} on:click|preventDefault={() => navigateToSection('home')}>Home</a></li>
+          <li><a href="#" class={activeSection === 'currencies' ? 'active' : ''} on:click|preventDefault={() => navigateToSection('currencies')}>Currencies</a></li>
+          <li><a href="#" on:click|preventDefault={openSettings}>Settings</a></li>
         </ul>
       </nav>
       <button class="mobile-menu-toggle" on:click={toggleMobileMenu} aria-label="Toggle menu" aria-expanded={mobileMenuOpen}>
@@ -1327,598 +1460,732 @@
   {#if mobileMenuOpen}
     <div class="mobile-menu open" transition:slide={{ duration: 300 }}>
       <ul>
-        <li><a href="/" class="active">Home</a></li>
-        <li><a href="#currencies">Currencies</a></li>
-        <li><a href="#settings" on:click={openSettings}>Settings</a></li>
+        <li><a href="#" class={activeSection === 'home' ? 'active' : ''} on:click|preventDefault={() => navigateToSection('home')}>Home</a></li>
+        <li><a href="#" class={activeSection === 'currencies' ? 'active' : ''} on:click|preventDefault={() => navigateToSection('currencies')}>Currencies</a></li>
+        <li><a href="#" on:click|preventDefault={openSettings}>Settings</a></li>
       </ul>
     </div>
   {/if}
   
-  <!-- Main content area with reduced text -->
+  <!-- Main content area with conditional rendering based on active section -->
   <main class="main-content">
-    {#if !currentImage}
-      {#if activeMethod === ''}
-        <!-- Simplified scan method selector -->
-        <div class="scan-method-selector">
-          <div class="section-intro">
-            <h3>Scan Currency</h3>
-            <p>Choose how you'd like to scan your bill</p>
-          </div>
-          <div class="method-cards">
-            <!-- Upload Method Card -->
-            <div class="method-card" on:click={() => selectMethod('upload')} title="Upload an image from your device">
-              <div class="method-card-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-              </div>
-              <h3>Upload Image</h3>
-              <p class="method-card-description">Upload an image of your bill from your device</p>
-              <button class="method-button">Select Image</button>
+    {#if activeSection === 'home'}
+      {#if !currentImage}
+        {#if activeMethod === ''}
+          <!-- Simplified scan method selector -->
+          <div class="scan-method-selector">
+            <div class="section-intro">
+              <h3>Scan Currency</h3>
+              <p>Choose how you'd like to scan your bill</p>
             </div>
-            
-            <!-- Camera Method Card -->
-            <div class="method-card" on:click={() => selectMethod('camera')} title="Use your camera to scan a bill">
-              <div class="method-card-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                  <circle cx="12" cy="13" r="4"></circle>
-                </svg>
-              </div>
-              <h3>Use Camera</h3>
-              <p class="method-card-description">Use your camera to instantly scan a bill</p>
-              <button class="method-button">Open Camera</button>
-            </div>
-          </div>
-        </div>
-        
-      {:else if activeMethod === 'upload'}
-        <!-- Simplified upload section -->
-        <div class="upload-container">
-          <div class="upload-header">
-            <h2 class="upload-title">Upload Bill Image</h2>
-            <button class="btn btn-secondary" on:click={() => { activeMethod = ''; showMethodSelector = true; }}>
-              <i class="fas fa-arrow-left"></i> Back
-            </button>
-          </div>
-          <div class="upload-content">
-            <div class="dropzone" on:click={triggerFileUpload} on:dragover|preventDefault={handleDragOver} on:dragleave={handleDragLeave} on:drop|preventDefault={handleDrop}>
-              <i class="fas fa-upload dropzone-icon"></i>
-              <p class="dropzone-text">Click or drag and drop to upload</p>
-              <p class="dropzone-subtext">Supported formats: JPEG, PNG</p>
-            </div>
-            <input type="file" accept="image/*" hidden on:change={handleFileUpload} />
-          </div>
-        </div>
-        
-      {:else if activeMethod === 'camera'}
-        <!-- Simplified camera section -->
-        <div class="camera-container">
-          <div class="camera-header">
-            <h2 class="camera-title">Scan Bill with Camera</h2>
-            <button class="btn btn-secondary" on:click={() => { activeMethod = ''; showMethodSelector = true; }}>
-              <i class="fas fa-arrow-left"></i> Back
-            </button>
-          </div>
-          
-          <div class="camera-content">
-            {#if !showCamera}
-              <button class="btn btn-primary start-camera-btn" on:click={startCameraPreview}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="camera-icon">
-                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                  <circle cx="12" cy="13" r="4"></circle>
-                </svg>
-                Start Camera
-              </button>
-            {:else if cameraError}
-              <div class="camera-error">
-                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="8" x2="12" y2="12"></line>
-                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                </svg>
-                <p>{cameraErrorMessage}</p>
-                <div class="camera-error-actions">
-                  <button class="btn btn-primary" on:click={startCameraPreview}>Try Again</button>
-                  <!-- Add a secondary option for users to upload an image instead -->
-                  <button class="btn btn-secondary" on:click={() => { activeMethod = 'upload'; }}>Upload Image Instead</button>
-                </div>
-              </div>
-            {:else}
-              <div class="camera-preview-container">
-                <video 
-                  bind:this={cameraFeed} 
-                  autoplay 
-                  playsinline 
-                  muted 
-                  class="camera-feed"
-                ></video>
-                
-                <!-- Enhanced camera guidelines -->
-                <div class="camera-guidelines">
-                  <div class="guideline-frame">
-                    <div class="corner corner-tl"></div>
-                    <div class="corner corner-tr"></div>
-                    <div class="corner corner-bl"></div>
-                    <div class="corner corner-br"></div>
-                  </div>
-                  <div class="guideline-text">Position currency here</div>
-                </div>
-                
-                <button class="btn-capture" on:click={captureImage} disabled={processing} aria-label="Capture image">
-                  <div class="btn-capture-inner"></div>
-                </button>
-                
-                <!-- Add camera control buttons -->
-                <div class="camera-controls">
-                  <button 
-                    class="camera-control-btn" 
-                    on:click={toggleCameraInversion} 
-                    aria-label="Flip camera"
-                    title="Flip camera horizontally"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4"></path>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              
-              <div class="camera-hint">
-                <p>Position currency bill in view and tap the circle to capture</p>
-                <p class="camera-tip">For best results, ensure good lighting and hold steady</p>
-              </div>
-            {/if}
-          </div>
-        </div>
-      {/if}
-    {:else}
-      <!-- Modern, clean results display -->
-      <div class="result-card">
-        <div class="result-header">
-          <h2 class="result-title">Scan Results</h2>
-        </div>
-        <div class="result-content">
-          <div class="scanned-image-container">
-            <div class="image-controls">
-              <button class="image-control-btn" on:click={() => handleImageZoom(1.1)} title="Zoom in">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="8"></circle>
-                  <line x1="12" y1="8" x2="12" y2="16"></line>
-                  <line x1="8" y1="12" x2="16" y2="12"></line>
-                </svg>
-              </button>
-              <button class="image-control-btn" on:click={() => handleImageZoom(0.9)} title="Zoom out">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="8"></circle>
-                  <line x1="8" y1="12" x2="16" y2="12"></line>
-                </svg>
-              </button>
-              <button class="image-control-btn" on:click={() => handleImageRotation(90)} title="Rotate image">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="1 4 1 10 7 10"></polyline>
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-                </svg>
-              </button>
-              <button class="image-control-btn" on:click={resetImageTransforms} title="Reset image">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
-              </button>
-              <button class="image-control-btn" on:click={toggleFullscreen} title="View fullscreen">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
-                  <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
-                  <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
-                  <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
-                </svg>
-              </button>
-            </div>
-            
-            <div class="image-wrapper" class:fullscreen={isFullscreen}>
-              {#if currentImage}
-                <img 
-                  src={currentImage} 
-                  alt="Scanned currency"
-                  class="scanned-image"
-                  style="transform: scale({imageZoom}) rotate({imageRotation}deg); transition: transform 0.3s ease;"
-                />
-              {/if}
-              
-              {#if isFullscreen}
-                <button class="close-fullscreen" on:click={toggleFullscreen}>
+            <div class="method-cards">
+              <!-- Upload Method Card -->
+              <div class="method-card" on:click={() => selectMethod('upload')} title="Upload an image from your device">
+                <div class="method-card-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
                   </svg>
+                </div>
+                <h3>Upload Image</h3>
+                <p class="method-card-description">Upload an image of your bill from your device</p>
+                <button class="method-button">Select Image</button>
+              </div>
+              
+              <!-- Camera Method Card -->
+              <div class="method-card" on:click={() => selectMethod('camera')} title="Use your camera to scan a bill">
+                <div class="method-card-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                  </svg>
+                </div>
+                <h3>Use Camera</h3>
+                <p class="method-card-description">Use your camera to instantly scan a bill</p>
+                <button class="method-button">Open Camera</button>
+              </div>
+            </div>
+          </div>
+          
+        {:else if activeMethod === 'upload'}
+          <!-- Simplified upload section -->
+          <div class="upload-container">
+            <div class="upload-header">
+              <h2 class="upload-title">Upload Bill Image</h2>
+              <button class="btn btn-secondary" on:click={() => { activeMethod = ''; showMethodSelector = true; }}>
+                <i class="fas fa-arrow-left"></i> Back
+              </button>
+            </div>
+            <div class="upload-content">
+              <div class="dropzone" on:click={triggerFileUpload} on:dragover|preventDefault={handleDragOver} on:dragleave={handleDragLeave} on:drop|preventDefault={handleDrop}>
+                <i class="fas fa-upload dropzone-icon"></i>
+                <p class="dropzone-text">Click or drag and drop to upload</p>
+                <p class="dropzone-subtext">Supported formats: JPEG, PNG</p>
+              </div>
+              <input type="file" accept="image/*" hidden on:change={handleFileUpload} />
+            </div>
+          </div>
+          
+        {:else if activeMethod === 'camera'}
+          <!-- Simplified camera section -->
+          <div class="camera-container">
+            <div class="camera-header">
+              <h2 class="camera-title">Scan Bill with Camera</h2>
+              <button class="btn btn-secondary" on:click={() => { activeMethod = ''; showMethodSelector = true; }}>
+                <i class="fas fa-arrow-left"></i> Back
+              </button>
+            </div>
+            
+            <div class="camera-content">
+              {#if !showCamera}
+                <button class="btn btn-primary start-camera-btn" on:click={startCameraPreview}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="camera-icon">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                  </svg>
+                  Start Camera
                 </button>
-              {/if}
-            </div>
-          </div>
-          
-          <div class="result-panels">
-            <div class="result-panel">
-              <div class="result-icon">{isCoin ? '🪙' : '💵'}</div>
-              <h3>{isCoin ? 'Coin' : 'Bill'} Value</h3>
-              <div class="result-value">{billAmount}</div>
-              {#if isCoin && coinMatchDetails}
-                <div class="coin-details">{coinMatchDetails}</div>
-              {/if}
-            </div>
-            
-            <div class="result-panel">
-              <div class="result-icon">🏛️</div>
-              <h3>Currency</h3>
-              <div class="result-value">{currencyValue}</div>
-            </div>
-            
-            <!-- Add a speak button for accessibility -->
-            <div class="result-panel speak-panel">
-              <div class="result-icon">🔊</div>
-              <h3>Voice Announcement</h3>
-              <div class="result-value">
-                <TextToSpeechButton 
-                  amount={billAmount}
-                  currency={getCurrencyCode(currencyValue)}
-                  extraInfo={`Issued by ${getIssuingAuthority(currencyValue)}`}
-                  iconOnly={false}
-                />
-              </div>
-            </div>
-          </div>
-          
-          <!-- Currency details in clean, modern grid -->
-          <div class="currency-details">
-            <h3 class="details-header">
-              Currency Information
-            </h3>
-            
-            <div class="details-grid">
-              <div class="detail-item">
-                <div class="detail-icon">🌐</div>
-                <div class="detail-content">
-                  <h4>Currency Code</h4>
-                  <p>{getCurrencyCode(currencyValue)}</p>
-                </div>
-              </div>
-              
-              <div class="detail-item">
-                <div class="detail-icon">🏦</div>
-                <div class="detail-content">
-                  <h4>Issuing Authority</h4>
-                  <p>{getIssuingAuthority(currencyValue)}</p>
-                </div>
-              </div>
-              
-              <!-- Update the Exchange Rate section to have better styling -->
-              <div class="detail-item exchange-rate-item">
-                <div class="detail-icon">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="8"></circle>
-                    <line x1="16.5" y1="9.5" x2="7.5" y2="14.5"></line>
-                    <polyline points="14 7 16.5 9.5 14 12"></polyline>
-                    <polyline points="10 17 7.5 14.5 10 12"></polyline>
+              {:else if cameraError}
+                <div class="camera-error">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
                   </svg>
-                </div>
-                <div class="detail-content">
-                  <h4>Exchange Rate</h4>
-                  <div class="exchange-rate-container">
-                    <!-- Updated currency converter interface -->
-                    <div class="currency-converter">
-                      <div class="converter-input-group">
-                        <div class="converter-label">Amount</div>
-                        <div class="converter-input">
-                          <span class="currency-symbol">{getCurrencySymbol(getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP")}</span>
-                          <input 
-                            type="text" 
-                            value={getNumericAmount(billAmount)} 
-                            class="amount-input"
-                            aria-label="Amount to convert"
-                          />
-                        </div>
-                      </div>
-                      
-                      <div class="converter-row">
-                        <div class="converter-col">
-                          <div class="converter-label">From</div>
-                          <div class="currency-selector-dropdown">
-                            <div class="currency-flag-wrapper">
-                              <span class="currency-flag-small">{getCurrencyFlag(getCurrencyCode(currencyValue))}</span>
-                            </div>
-                            <select 
-                              class="currency-select clean"
-                              disabled
-                            >
-                              <option selected>{getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} - {getCurrencyCode(currencyValue) !== "Unknown" ? currencyValue.split(' ')[0] : "Philippine Peso"}</option>
-                            </select>
-                          </div>
-                        </div>
-                        
-                        <div class="converter-swap">
-                          <button class="swap-button" aria-label="Swap currencies" title="Swap currencies">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <line x1="12" y1="5" x2="12" y2="19"></line>
-                              <polyline points="19 12 12 19 5 12"></polyline>
-                            </svg>
-                          </button>
-                        </div>
-                        
-                        <div class="converter-col">
-                          <div class="converter-label">To</div>
-                          <div class="currency-selector-dropdown">
-                            <div class="currency-flag-wrapper">
-                              <span class="currency-flag-small">{getCurrencyFlag(targetCurrency)}</span>
-                            </div>
-                            <select 
-                              id="targetCurrency" 
-                              bind:value={targetCurrency}
-                              class="currency-select clean"
-                            >
-                              {#each commonCurrencies as currency}
-                                <option value={currency.code} disabled={currency.code === getCurrencyCode(currencyValue)}>
-                                  {currency.code} - {currency.name}
-                                </option>
-                              {/each}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <button class="convert-button" on:click={refreshExchangeRate}>
-                        Convert
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="convert-icon">
-                          <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
-                        </svg>
-                      </button>
-                      
-                      <div class="conversion-result">
-                        <ExchangeRateWidget 
-                          fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
-                          toCurrency={targetCurrency} 
-                          amount={getNumericAmount(billAmount)} 
-                        />
-                      </div>
-                    </div>
-                    
-                    <div class="quick-conversions">
-                      <h5>Quick Conversions</h5>
-                      <div class="quick-conversions-grid">
-                        {#each getTopCurrencies(getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP") as currency}
-                          <div class="quick-conversion-item">
-                            <div class="quick-currency-flag">{getCurrencyFlag(currency)}</div>
-                            <div class="quick-currency-code">{currency}</div>
-                            <div class="quick-conversion-value">
-                              <ExchangeRateWidget 
-                                fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
-                                toCurrency={currency} 
-                                amount={getNumericAmount(billAmount)}
-                                compact={true}
-                              />
-                            </div>
-                          </div>
-                        {/each}
-                      </div>
-                    </div>
-                    
-                    <div class="conversion-info">
-                      <p class="rate-info">Exchange rates from <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">ExchangeRate-API</a></p>
-                      <p class="rate-timestamp">Updated {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Add specifications information -->
-              {#if isCoin}
-                <div class="detail-item">
-                  <div class="detail-icon">📏</div>
-                  <div class="detail-content">
-                    <h4>Coin Specifications</h4>
-                    <ul class="specs-list">
-                      {#if billAmount === "1"}
-                        <li><strong>Material:</strong> Nickel-plated or nickel-brass plated steel</li>
-                        <li><strong>Diameter:</strong> 24mm</li>
-                        <li><strong>Weight:</strong> 6.10g</li>
-                      {:else if billAmount === "5"}
-                        <li><strong>Material:</strong> Nickel-plated or nickel-brass plated steel</li>
-                        <li><strong>Diameter:</strong> 27mm</li>
-                        <li><strong>Weight:</strong> 7.70g</li>
-                      {:else if billAmount === "10"}
-                        <li><strong>Material:</strong> Bi-metallic: Nickel-brass ring, Nickel-plated center</li>
-                        <li><strong>Diameter:</strong> 27mm</li>
-                        <li><strong>Weight:</strong> 8.00g</li>
-                      {:else if billAmount === "20"}
-                        <li><strong>Material:</strong> Bi-metallic: Nickel-brass center, Nickel-plated ring</li>
-                        <li><strong>Diameter:</strong> 30mm</li>
-                        <li><strong>Weight:</strong> 11.50g</li>
-                      {:else}
-                        <li><strong>Material:</strong> Nickel-plated or brass-plated steel</li>
-                        <li><strong>Size:</strong> Varies by denomination</li>
-                      {/if}
-                      {#if billAmount !== "Unknown" && billAmount !== "Not detected"}
-                        <li><strong>Value:</strong> {billAmount} {billAmount === "1" ? "peso" : "pesos"}</li>
-                      {/if}
-                    </ul>
+                  <p>{cameraErrorMessage}</p>
+                  <div class="camera-error-actions">
+                    <button class="btn btn-primary" on:click={startCameraPreview}>Try Again</button>
+                    <!-- Add a secondary option for users to upload an image instead -->
+                    <button class="btn btn-secondary" on:click={() => { activeMethod = 'upload'; }}>Upload Image Instead</button>
                   </div>
                 </div>
               {:else}
-                <div class="detail-item">
-                  <div class="detail-icon">📃</div>
-                  <div class="detail-content">
-                    <h4>Bill Specifications</h4>
-                    <ul class="specs-list">
-                      {#if getCurrencyCode(currencyValue) === "PHP"}
-                        <li><strong>Material:</strong> {billAmount === "1000" ? "Polymer" : "Cotton and abaca fibers"}</li>
-                        <li><strong>Size:</strong> {billAmount === "20" || billAmount === "50" ? "130mm × 60mm" : 
-                                                  billAmount === "100" || billAmount === "200" ? "146mm × 66mm" : 
-                                                  billAmount === "500" || billAmount === "1000" ? "160mm × 66mm" : "Varies by denomination"}</li>
-                      {:else}
-                        <li><strong>Material:</strong> Cotton-based paper or polymer</li>
-                        <li><strong>Size:</strong> Varies by denomination</li>
-                      {/if}
-                      {#if billAmount !== "Unknown" && billAmount !== "Not detected"}
-                        <li><strong>Value:</strong> {billAmount} {billAmount === "1" ? "unit" : "units"}</li>
-                      {/if}
-                    </ul>
+                <div class="camera-preview-container">
+                  <video 
+                    bind:this={cameraFeed} 
+                    autoplay 
+                    playsinline 
+                    muted 
+                    class="camera-feed"
+                  ></video>
+                  
+                  <!-- Enhanced camera guidelines -->
+                  <div class="camera-guidelines">
+                    <div class="guideline-frame">
+                      <div class="corner corner-tl"></div>
+                      <div class="corner corner-tr"></div>
+                      <div class="corner corner-bl"></div>
+                      <div class="corner corner-br"></div>
+                    </div>
+                    <div class="guideline-text">Position currency here</div>
+                  </div>
+                  
+                  <button class="btn-capture" on:click={captureImage} disabled={processing} aria-label="Capture image">
+                    <div class="btn-capture-inner"></div>
+                  </button>
+                  
+                  <!-- Add camera control buttons -->
+                  <div class="camera-controls">
+                    <button 
+                      class="camera-control-btn" 
+                      on:click={toggleCameraInversion} 
+                      aria-label="Flip camera"
+                      title="Flip camera horizontally"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4"></path>
+                      </svg>
+                    </button>
                   </div>
                 </div>
+                
+                <div class="camera-hint">
+                  <p>Position currency bill in view and tap the circle to capture</p>
+                  <p class="camera-tip">For best results, ensure good lighting and hold steady</p>
+                </div>
               {/if}
+            </div>
+          </div>
+        {/if}
+      {:else}
+        <!-- Modern, clean results display -->
+        <div class="result-card">
+          <div class="result-header">
+            <h2 class="result-title">Scan Results</h2>
+          </div>
+          <div class="result-content">
+            <div class="scanned-image-container">
+              <div class="image-controls">
+                <button class="image-control-btn" on:click={() => handleImageZoom(1.1)} title="Zoom in">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="8"></circle>
+                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                  </svg>
+                </button>
+                <button class="image-control-btn" on:click={() => handleImageZoom(0.9)} title="Zoom out">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="8"></circle>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                  </svg>
+                </button>
+                <button class="image-control-btn" on:click={() => handleImageRotation(90)} title="Rotate image">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 4 1 10 7 10"></polyline>
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                  </svg>
+                </button>
+                <button class="image-control-btn" on:click={resetImageTransforms} title="Reset image">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                  </svg>
+                </button>
+                <button class="image-control-btn" on:click={toggleFullscreen} title="View fullscreen">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                    <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
+                    <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
+                    <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+                  </svg>
+                </button>
+              </div>
               
-              <!-- Add visual identification tips -->
-              <div class="detail-item">
-                <div class="detail-icon">👁️</div>
-                <div class="detail-content">
-                  <h4>Visual Identification</h4>
-                  {#if isCoin}
-                    <ul class="specs-list">
-                      {#if billAmount === "1"}
-                        <li><strong>Color:</strong> Silver/brass color</li>
-                        <li><strong>Edge:</strong> Plain/smooth</li>
-                      {:else if billAmount === "5"}
-                        <li><strong>Color:</strong> Silver/brass color</li>
-                        <li><strong>Edge:</strong> Reeded/ridged</li>
-                      {:else if billAmount === "10"}
-                        <li><strong>Color:</strong> Bi-color: golden ring, silver center</li>
-                        <li><strong>Edge:</strong> Interrupted reeding</li>
-                      {:else if billAmount === "20"}
-                        <li><strong>Color:</strong> Bi-color: silver ring, golden center</li>
-                        <li><strong>Edge:</strong> Fine reeding</li>
-                      {:else}
-                        <li><strong>Look for:</strong> Denomination, BSP logo</li>
-                        <li><strong>Edge:</strong> Varies by denomination</li>
-                      {/if}
-                    </ul>
-                  {:else}
-                    <ul class="specs-list">
-                      {#if getCurrencyCode(currencyValue) === "PHP"}
-                        {#if billAmount === "20"}
-                          <li><strong>Color:</strong> Orange</li>
-                          <li><strong>Features:</strong> Manuel L. Quezon, Malacañang Palace</li>
-                        {:else if billAmount === "50"}
-                          <li><strong>Color:</strong> Red</li>
-                          <li><strong>Features:</strong> Sergio Osmeña, National Museum</li>
-                        {:else if billAmount === "100"}
-                          <li><strong>Color:</strong> Purple</li>
-                          <li><strong>Features:</strong> Manuel Roxas, Central Bank Building</li>
-                        {:else if billAmount === "200"}
-                          <li><strong>Color:</strong> Green</li>
-                          <li><strong>Features:</strong> Diosdado Macapagal, PICC</li>
-                        {:else if billAmount === "500"}
-                          <li><strong>Color:</strong> Yellow</li>
-                          <li><strong>Features:</strong> Benigno & Corazon Aquino, UPIS</li>
-                        {:else if billAmount === "1000"}
-                          <li><strong>Color:</strong> Blue</li>
-                          <li><strong>Features:</strong> Jose Abad Santos, Vicente Lim, Josefa Escoda</li>
-                        {:else}
-                          <li><strong>Look for:</strong> Distinct colors for each denomination</li>
-                          <li><strong>Features:</strong> Filipino heroes and landmarks</li>
-                        {/if}
-                      {:else}
-                        <li><strong>Look for:</strong> Distinct colors and design elements</li>
-                        <li><strong>Features:</strong> Varies by country and denomination</li>
-                      {/if}
-                    </ul>
+              <div class="image-wrapper" class:fullscreen={isFullscreen}>
+                {#if currentImage}
+                  <img 
+                    src={currentImage} 
+                    alt="Scanned currency"
+                    class="scanned-image"
+                    style="transform: scale({imageZoom}) rotate({imageRotation}deg); transition: transform 0.3s ease;"
+                  />
+                {/if}
+                
+                {#if isFullscreen}
+                  <button class="close-fullscreen" on:click={toggleFullscreen}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                {/if}
+              </div>
+            </div>
+            
+            <div class="result-panels">
+              <div class="result-panel">
+                <div class="result-icon">{isCoin ? '🪙' : '💵'}</div>
+                <h3>{isCoin ? 'Coin' : 'Bill'} Value</h3>
+                <div class="result-value">{billAmount}</div>
+                {#if isCoin && coinMatchDetails}
+                  <div class="coin-details">{coinMatchDetails}</div>
+                {/if}
+              </div>
+              
+              <div class="result-panel">
+                <div class="result-icon">🏛️</div>
+                <h3>Currency</h3>
+                <div class="result-value">{currencyValue}</div>
+              </div>
+              
+              <!-- Add a speak button for accessibility -->
+              <div class="result-panel speak-panel">
+                <div class="result-icon">🔊</div>
+                <h3>Voice Announcement</h3>
+                <div class="result-value">
+                  {#if currencyValue !== "Unknown" && billAmount !== "Unknown"}
+                    <TextToSpeechButton 
+                      amount={billAmount}
+                      currency={getCurrencyCode(currencyValue)}
+                      extraInfo={`Issued by ${getIssuingAuthority(currencyValue)}`}
+                      iconOnly={false}
+                      autoAnnounce={autoAnnounce}
+                      speechRate={speechRate}
+                      speechVolume={speechVolume}
+                    />
                   {/if}
                 </div>
               </div>
             </div>
-          </div>
-          
-          <!-- Add extracted text section -->
-          <div class="extracted-text-section">
-            <div class="extracted-text-header">
-              <h3>Advanced Details</h3>
-              <button 
-                class="toggle-extracted-text" 
-                on:click={toggleExtractedText}
-                aria-label={showExtractedText ? "Hide extracted text" : "Show extracted text"}
-                title={showExtractedText ? "Hide extracted text" : "Show extracted text"}
-              >
-                <span class="toggle-icon">{showExtractedText ? '−' : '+'}</span>
-                {showExtractedText ? 'Hide extracted text' : 'Show extracted text'}
-              </button>
-            </div>
             
-            {#if showExtractedText}
-              <div class="extracted-text-content" transition:slide={{ duration: 200 }}>
-                <div class="extracted-text-box">
-                  <h4>Extracted Text</h4>
-                  <p class="extracted-text-description">
-                    This is the raw text extracted from the image using AI-powered text recognition:
-                  </p>
-                  <pre class="extracted-text-display">{extractedText}</pre>
+            
+            <!-- Currency details in clean, modern grid -->
+            <div class="currency-details">
+              <h3 class="details-header">
+                Currency Information
+              </h3>
+              
+              <div class="details-grid">
+                <div class="detail-item">
+                  <div class="detail-icon">🌐</div>
+                  <div class="detail-content">
+                    <h4>Currency Code</h4>
+                    <p>{getCurrencyCode(currencyValue)}</p>
+                  </div>
                 </div>
                 
-                <div class="detection-logic">
-                  <h4>Detection Logic</h4>
-                  <p>How the system identified this {isCoin ? 'coin' : 'bill'}:</p>
-                  <ul class="detection-steps">
-                    <li>
-                      <strong>Currency:</strong> {currencyValue}
-                      {#if currencyValue !== "Unknown"}
-                        <span class="detection-confidence high">High confidence</span>
-                      {:else}
-                        <span class="detection-confidence low">Low confidence</span>
-                      {/if}
-                    </li>
-                    <li>
-                      <strong>Amount:</strong> {billAmount}
-                      {#if billAmount !== "Unknown" && billAmount !== "Not detected"}
-                        <span class="detection-confidence high">High confidence</span>
-                      {:else}
-                        <span class="detection-confidence low">Low confidence</span>
-                      {/if}
-                    </li>
-                    {#if isCoin && coinMatchDetails}
-                      <li>
-                        <strong>Type:</strong> {coinMatchDetails}
-                      </li>
-                    {/if}
+                <div class="detail-item">
+                  <div class="detail-icon">🏦</div>
+                  <div class="detail-content">
+                    <h4>Issuing Authority</h4>
+                    <p>{getIssuingAuthority(currencyValue)}</p>
+                  </div>
+                </div>
+                
+                <!-- Update the Exchange Rate section to have better styling -->
+                <div class="detail-item exchange-rate-item">
+                  <div class="detail-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="8"></circle>
+                      <line x1="16.5" y1="9.5" x2="7.5" y2="14.5"></line>
+                      <polyline points="14 7 16.5 9.5 14 12"></polyline>
+                      <polyline points="10 17 7.5 14.5 10 12"></polyline>
+                    </svg>
+                  </div>
+                  <div class="detail-content">
+                    <h4>Exchange Rate</h4>
+                    <div class="exchange-rate-container">
+                      <!-- Updated currency converter interface -->
+                      <div class="currency-converter">
+                        <div class="converter-input-group">
+                          <div class="converter-label">Amount</div>
+                          <div class="converter-input">
+                            <span class="currency-symbol">{getCurrencySymbol(getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP")}</span>
+                            <input 
+                              type="text" 
+                              value={getNumericAmount(billAmount)} 
+                              class="amount-input"
+                              aria-label="Amount to convert"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div class="converter-row">
+                          <div class="converter-col">
+                            <div class="converter-label">From</div>
+                            <div class="currency-selector-dropdown">
+                              <div class="currency-flag-wrapper">
+                                <span class="currency-flag-small">{getCurrencyFlag(getCurrencyCode(currencyValue))}</span>
+                              </div>
+                              <select 
+                                class="currency-select clean"
+                                disabled
+                              >
+                                <option selected>{getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} - {getCurrencyCode(currencyValue) !== "Unknown" ? currencyValue.split(' ')[0] : "Philippine Peso"}</option>
+                              </select>
+                            </div>
+                          </div>
+                          
+                          <div class="converter-swap">
+                            <button class="swap-button" aria-label="Swap currencies" title="Swap currencies">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <polyline points="19 12 12 19 5 12"></polyline>
+                              </svg>
+                            </button>
+                          </div>
+                          
+                          <div class="converter-col">
+                            <div class="converter-label">To</div>
+                            <div class="currency-selector-dropdown">
+                              <div class="currency-flag-wrapper">
+                                <span class="currency-flag-small">{getCurrencyFlag(targetCurrency)}</span>
+                              </div>
+                              <select 
+                                id="targetCurrency" 
+                                bind:value={targetCurrency}
+                                class="currency-select clean"
+                              >
+                                {#each commonCurrencies as currency}
+                                  <option value={currency.code} disabled={currency.code === getCurrencyCode(currencyValue)}>
+                                    {currency.code} - {currency.name}
+                                  </option>
+                                {/each}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <button class="convert-button" on:click={refreshExchangeRate}>
+                          Convert
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="convert-icon">
+                            <path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                          </svg>
+                        </button>
+                        
+                        <div class="conversion-result">
+                          <ExchangeRateWidget 
+                            fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
+                            toCurrency={targetCurrency} 
+                            amount={getNumericAmount(billAmount)} 
+                          />
+                        </div>
+                      </div>
+                      
+                      <div class="quick-conversions">
+                        <h5>Quick Conversions</h5>
+                        <div class="quick-conversions-grid">
+                          {#each getTopCurrencies(getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP") as currency}
+                            <div class="quick-conversion-item">
+                              <div class="quick-currency-flag">{getCurrencyFlag(currency)}</div>
+                              <div class="quick-currency-code">{currency}</div>
+                              <div class="quick-conversion-value">
+                                <ExchangeRateWidget 
+                                  fromCurrency={getCurrencyCode(currencyValue) !== "Unknown" ? getCurrencyCode(currencyValue) : "PHP"} 
+                                  toCurrency={currency} 
+                                  amount={getNumericAmount(billAmount)}
+                                  compact={true}
+                                />
+                              </div>
+                            </div>
+                          {/each}
+                        </div>
+                      </div>
+                      
+                      <div class="conversion-info">
+                        <p class="rate-info">Exchange rates from <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">ExchangeRate-API</a></p>
+                        <p class="rate-timestamp">Updated {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Add specifications information -->
+                {#if isCoin}
+                  <div class="detail-item">
+                    <div class="detail-icon">📏</div>
+                    <div class="detail-content">
+                      <h4>Coin Specifications</h4>
+                      <ul class="specs-list">
+                        {#if billAmount === "1"}
+                          <li><strong>Material:</strong> Nickel-plated or nickel-brass plated steel</li>
+                          <li><strong>Diameter:</strong> 24mm</li>
+                          <li><strong>Weight:</strong> 6.10g</li>
+                        {:else if billAmount === "5"}
+                          <li><strong>Material:</strong> Nickel-plated or nickel-brass plated steel</li>
+                          <li><strong>Diameter:</strong> 27mm</li>
+                          <li><strong>Weight:</strong> 7.70g</li>
+                        {:else if billAmount === "10"}
+                          <li><strong>Material:</strong> Bi-metallic: Nickel-brass ring, Nickel-plated center</li>
+                          <li><strong>Diameter:</strong> 27mm</li>
+                          <li><strong>Weight:</strong> 8.00g</li>
+                        {:else if billAmount === "20"}
+                          <li><strong>Material:</strong> Bi-metallic: Nickel-brass center, Nickel-plated ring</li>
+                          <li><strong>Diameter:</strong> 30mm</li>
+                          <li><strong>Weight:</strong> 11.50g</li>
+                        {:else}
+                          <li><strong>Material:</strong> Nickel-plated or brass-plated steel</li>
+                          <li><strong>Size:</strong> Varies by denomination</li>
+                        {/if}
+                        {#if billAmount !== "Unknown" && billAmount !== "Not detected"}
+                          <li><strong>Value:</strong> {billAmount} {billAmount === "1" ? "peso" : "pesos"}</li>
+                        {/if}
+                      </ul>
+                    </div>
+                  </div>
+                {:else}
+                  <div class="detail-item">
+                    <div class="detail-icon">📃</div>
+                    <div class="detail-content">
+                      <h4>Bill Specifications</h4>
+                      <ul class="specs-list">
+                        {#if getCurrencyCode(currencyValue) === "PHP"}
+                          <li><strong>Material:</strong> {billAmount === "1000" ? "Polymer" : "Cotton and abaca fibers"}</li>
+                          <li><strong>Size:</strong> {billAmount === "20" || billAmount === "50" ? "130mm × 60mm" : 
+                                                    billAmount === "100" || billAmount === "200" ? "146mm × 66mm" : 
+                                                    billAmount === "500" || billAmount === "1000" ? "160mm × 66mm" : "Varies by denomination"}</li>
+                        {:else}
+                          <li><strong>Material:</strong> Cotton-based paper or polymer</li>
+                          <li><strong>Size:</strong> Varies by denomination</li>
+                        {/if}
+                        {#if billAmount !== "Unknown" && billAmount !== "Not detected"}
+                          <li><strong>Value:</strong> {billAmount} {billAmount === "1" ? "unit" : "units"}</li>
+                        {/if}
+                      </ul>
+                    </div>
+                  </div>
+                {/if}
+                
+                <!-- Add visual identification tips -->
+                <div class="detail-item">
+                  <div class="detail-icon">👁️</div>
+                  <div class="detail-content">
+                    <h4>Visual Identification</h4>
                     {#if isCoin}
-                      <li>
-                        <strong>Format:</strong> Detected as a coin based on circular image shape
-                      </li>
+                      <ul class="specs-list">
+                        {#if billAmount === "1"}
+                          <li><strong>Color:</strong> Silver/brass color</li>
+                          <li><strong>Edge:</strong> Plain/smooth</li>
+                        {:else if billAmount === "5"}
+                          <li><strong>Color:</strong> Silver/brass color</li>
+                          <li><strong>Edge:</strong> Reeded/ridged</li>
+                        {:else if billAmount === "10"}
+                          <li><strong>Color:</strong> Bi-color: golden ring, silver center</li>
+                          <li><strong>Edge:</strong> Interrupted reeding</li>
+                        {:else if billAmount === "20"}
+                          <li><strong>Color:</strong> Bi-color: silver ring, golden center</li>
+                          <li><strong>Edge:</strong> Fine reeding</li>
+                        {:else}
+                          <li><strong>Look for:</strong> Denomination, BSP logo</li>
+                          <li><strong>Edge:</strong> Varies by denomination</li>
+                        {/if}
+                      </ul>
+                    {:else}
+                      <ul class="specs-list">
+                        {#if getCurrencyCode(currencyValue) === "PHP"}
+                          {#if billAmount === "20"}
+                            <li><strong>Color:</strong> Orange</li>
+                            <li><strong>Features:</strong> Manuel L. Quezon, Malacañang Palace</li>
+                          {:else if billAmount === "50"}
+                            <li><strong>Color:</strong> Red</li>
+                            <li><strong>Features:</strong> Sergio Osmeña, National Museum</li>
+                          {:else if billAmount === "100"}
+                            <li><strong>Color:</strong> Purple</li>
+                            <li><strong>Features:</strong> Manuel Roxas, Central Bank Building</li>
+                          {:else if billAmount === "200"}
+                            <li><strong>Color:</strong> Green</li>
+                            <li><strong>Features:</strong> Diosdado Macapagal, PICC</li>
+                          {:else if billAmount === "500"}
+                            <li><strong>Color:</strong> Yellow</li>
+                            <li><strong>Features:</strong> Benigno & Corazon Aquino, UPIS</li>
+                          {:else if billAmount === "1000"}
+                            <li><strong>Color:</strong> Blue</li>
+                            <li><strong>Features:</strong> Jose Abad Santos, Vicente Lim, Josefa Escoda</li>
+                          {:else}
+                            <li><strong>Look for:</strong> Distinct colors for each denomination</li>
+                            <li><strong>Features:</strong> Filipino heroes and landmarks</li>
+                          {/if}
+                        {:else}
+                          <li><strong>Look for:</strong> Distinct colors and design elements</li>
+                          <li><strong>Features:</strong> Varies by country and denomination</li>
+                        {/if}
+                      </ul>
                     {/if}
-                  </ul>
+                  </div>
                 </div>
               </div>
-            {/if}
+            </div>
+            
+            <!-- Add extracted text section -->
+            <div class="extracted-text-section">
+              <div class="extracted-text-header">
+                <h3>Advanced Details</h3>
+                <button 
+                  class="toggle-extracted-text" 
+                  on:click={toggleExtractedText}
+                  aria-label={showExtractedText ? "Hide extracted text" : "Show extracted text"}
+                  title={showExtractedText ? "Hide extracted text" : "Show extracted text"}
+                >
+                  <span class="toggle-icon">{showExtractedText ? '−' : '+'}</span>
+                  {showExtractedText ? 'Hide extracted text' : 'Show extracted text'}
+                </button>
+              </div>
+              
+              {#if showExtractedText}
+                <div class="extracted-text-content" transition:slide={{ duration: 200 }}>
+                  <div class="extracted-text-box">
+                    <h4>Extracted Text</h4>
+                    <p class="extracted-text-description">
+                      This is the raw text extracted from the image using AI-powered text recognition:
+                    </p>
+                    <pre class="extracted-text-display">{extractedText}</pre>
+                  </div>
+                  
+                  <div class="detection-logic">
+                    <h4>Detection Logic</h4>
+                    <p>How the system identified this {isCoin ? 'coin' : 'bill'}:</p>
+                    <ul class="detection-steps">
+                      <li>
+                        <strong>Currency:</strong> {currencyValue}
+                        {#if currencyValue !== "Unknown"}
+                          <span class="detection-confidence high">High confidence</span>
+                        {:else}
+                          <span class="detection-confidence low">Low confidence</span>
+                        {/if}
+                      </li>
+                      <li>
+                        <strong>Amount:</strong> {billAmount}
+                        {#if billAmount !== "Unknown" && billAmount !== "Not detected"}
+                          <span class="detection-confidence high">High confidence</span>
+                        {:else}
+                          <span class="detection-confidence low">Low confidence</span>
+                        {/if}
+                      </li>
+                      {#if isCoin && coinMatchDetails}
+                        <li>
+                          <strong>Type:</strong> {coinMatchDetails}
+                        </li>
+                      {/if}
+                      {#if isCoin}
+                        <li>
+                          <strong>Format:</strong> Detected as a coin based on circular image shape
+                        </li>
+                      {/if}
+                    </ul>
+                  </div>
+                </div>
+              {/if}
+            </div>
           </div>
-        </div>
-        
-        <div class="card-footer">
-          <button class="btn btn-secondary" on:click={resetScan} title="Return to home screen">
-            <span class="btn-icon">🏠</span> Back to Home
-          </button>
           
-          <button class="btn btn-primary" on:click={() => {
-            // Open file upload dialog
-            const fileInput = document.getElementById('globalFileInput') as HTMLInputElement;
-            if (fileInput) {
+          <div class="card-footer">
+            <button class="btn btn-secondary" on:click={resetScan} title="Return to home screen">
+              <span class="btn-icon">🏠</span> Back to Home
+            </button>
+            
+            <button class="btn btn-primary" on:click={() => {
+              // Open file upload dialog
+              const fileInput = document.getElementById('globalFileInput') as HTMLInputElement;
+              if (fileInput) {
+                currentImage = null;
+                currencyValue = "Unknown";
+                billAmount = "Unknown";
+                extractedText = "No text detected";
+                fileInput.click();
+              }
+            }} title="Upload another bill image">
+              <span class="btn-icon">📤</span> Upload Another Bill
+            </button>
+            
+            <button class="btn btn-primary" on:click={() => {
               currentImage = null;
               currencyValue = "Unknown";
               billAmount = "Unknown";
               extractedText = "No text detected";
-              fileInput.click();
-            }
-          }} title="Upload another bill image">
-            <span class="btn-icon">📤</span> Upload Another Bill
-          </button>
-          
-          <button class="btn btn-primary" on:click={() => {
-            currentImage = null;
-            currencyValue = "Unknown";
-            billAmount = "Unknown";
-            extractedText = "No text detected";
-            selectMethod('camera');
-          }} title="Scan another bill using camera">
-            <span class="btn-icon">📷</span> Scan Another Bill
-          </button>
+              selectMethod('camera');
+            }} title="Scan another bill using camera">
+              <span class="btn-icon">📷</span> Scan Another Bill
+            </button>
+          </div>
         </div>
-      </div>
+      {/if}
+    {:else if activeSection === 'currencies'}
+      <!-- New Currencies Section -->
+      <section id="currencies" class="currencies-section">
+        <div class="section-intro">
+          <h3>Supported Currencies</h3>
+          <p>Information about the currencies supported by BILLSense</p>
+        </div>
+        
+        <div class="currencies-grid">
+          <!-- Philippine Peso Card -->
+          <div class="currency-card">
+            <div class="currency-card-header">
+              <div class="currency-flag">{getCurrencyFlag('PHP')}</div>
+              <div class="currency-info">
+                <h4>Philippine Peso</h4>
+                <span class="currency-code">PHP</span>
+              </div>
+            </div>
+            <div class="currency-card-content">
+              <div class="denomination-section">
+                <h5>Banknotes</h5>
+                <div class="denominations">
+                  <span class="denomination">₱20</span>
+                  <span class="denomination">₱50</span>
+                  <span class="denomination">₱100</span>
+                  <span class="denomination">₱200</span>
+                  <span class="denomination">₱500</span>
+                  <span class="denomination">₱1000</span>
+                </div>
+                
+                <h5>Coins</h5>
+                <div class="denominations">
+                  <span class="denomination">₱1</span>
+                  <span class="denomination">₱5</span>
+                  <span class="denomination">₱10</span>
+                  <span class="denomination">₱20</span>
+                </div>
+              </div>
+              
+              <div class="currency-details-section">
+                <h5>Issuing Authority</h5>
+                <p>Bangko Sentral ng Pilipinas</p>
+                
+                <h5>Exchange Rates</h5>
+                <div class="quick-rates">
+                  {#each getTopCurrencies('PHP') as currency}
+                    <div class="quick-rate-item">
+                      <span class="quick-rate-currency">{getCurrencyFlag(currency)} {currency}</span>
+                      <span class="quick-rate-value">
+                        <ExchangeRateWidget 
+                          fromCurrency="PHP" 
+                          toCurrency={currency} 
+                          amount={1}
+                          compact={true}
+                        />
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+              
+              <button class="btn-primary currency-scan-btn" on:click={() => { navigateToSection('home'); }}>
+                Scan This Currency
+              </button>
+            </div>
+          </div>
+          
+          <!-- Additional currency cards for major currencies -->
+          {#each ['USD', 'EUR', 'JPY', 'GBP'] as currencyCode}
+            <div class="currency-card">
+              <div class="currency-card-header">
+                <div class="currency-flag">{getCurrencyFlag(currencyCode)}</div>
+                <div class="currency-info">
+                  <h4>{getCurrencyName(currencyCode)}</h4>
+                  <span class="currency-code">{currencyCode}</span>
+                </div>
+              </div>
+              <div class="currency-card-content">
+                <div class="exchange-rate-section">
+                  <h5>Exchange Rate with PHP</h5>
+                  <div class="exchange-display">
+                    <ExchangeRateWidget 
+                      fromCurrency="PHP" 
+                      toCurrency={currencyCode} 
+                      amount={100}
+                    />
+                  </div>
+                </div>
+                
+                <div class="coming-soon">
+                  <p>Support for scanning this currency coming soon!</p>
+                </div>
+                
+                <button class="btn-secondary currency-convert-btn" on:click={() => { 
+                  navigateToSection('home'); 
+                  // If we have scanned a currency, set this as the target currency
+                  if (currentImage && currencyValue !== "Unknown") {
+                    targetCurrency = currencyCode;
+                  }
+                }}>
+                  Convert to {currencyCode}
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+        
+        <div class="currency-additional-info">
+          <h3>About Our Currency Detection</h3>
+          <p>
+            BILLSense currently focuses on detecting Philippine Peso bills and coins with high accuracy.
+            Support for other currencies is coming soon. Our exchange rates are updated regularly using
+            ExchangeRate-API to provide accurate currency conversions.
+          </p>
+          
+          <div class="currency-tips">
+            <h4>Tips for Better Detection</h4>
+            <ul>
+              <li>Ensure good lighting when scanning bills or coins</li>
+              <li>Place the currency against a contrasting background</li>
+              <li>Position the camera to capture the entire bill/coin</li>
+              <li>For coins, try to capture the face with denomination information</li>
+            </ul>
+          </div>
+        </div>
+      </section>
     {/if}
   </main>
 </div>
@@ -3868,6 +4135,247 @@
   
   .camera-icon {
     stroke: white;
+  }
+  
+  /* ... existing styles ... */
+  
+  /* Currencies section styles */
+  .currencies-section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 16px;
+  }
+  
+  .currencies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
+  }
+  
+  .currency-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+    transition: all 0.3s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .currency-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  }
+  
+  .currency-card-header {
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .currency-flag {
+    font-size: 32px;
+  }
+  
+  .currency-info h4 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #111827;
+  }
+  
+  .currency-code {
+    font-size: 14px;
+    color: #6b7280;
+    font-weight: 500;
+  }
+  
+  .currency-card-content {
+    padding: 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .denomination-section,
+  .currency-details-section,
+  .exchange-rate-section {
+    margin-bottom: 20px;
+  }
+  
+  .denomination-section h5,
+  .currency-details-section h5,
+  .exchange-rate-section h5 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 12px;
+    color: #374151;
+  }
+  
+  .denominations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .denomination {
+    padding: 6px 12px;
+    background-color: #f3f4f6;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #4b5563;
+  }
+  
+  .currency-details-section p {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: #4b5563;
+  }
+  
+  .quick-rates {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .quick-rate-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  
+  .quick-rate-item:last-child {
+    border-bottom: none;
+  }
+  
+  .quick-rate-currency {
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+  }
+  
+  .quick-rate-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+  }
+  
+  .exchange-display {
+    margin: 16px 0;
+    display: flex;
+    justify-content: center;
+  }
+  
+  .coming-soon {
+    padding: 12px;
+    background-color: #f9fafb;
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  
+  .coming-soon p {
+    margin: 0;
+    font-size: 14px;
+    color: #6b7280;
+    font-style: italic;
+  }
+  
+  .currency-scan-btn,
+  .currency-convert-btn {
+    margin-top: auto;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: 500;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    width: 100%;
+  }
+  
+  .currency-scan-btn {
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+  }
+  
+  .currency-scan-btn:hover {
+    background-color: #2563eb;
+  }
+  
+  .currency-convert-btn {
+    background-color: #f3f4f6;
+    color: #4b5563;
+    border: 1px solid #e5e7eb;
+  }
+  
+  .currency-convert-btn:hover {
+    background-color: #e5e7eb;
+    color: #1f2937;
+  }
+  
+  .currency-additional-info {
+    background-color: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    margin-bottom: 32px;
+  }
+  
+  .currency-additional-info h3 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 16px;
+    color: #111827;
+  }
+  
+  .currency-additional-info p {
+    margin: 0 0 20px;
+    color: #4b5563;
+    line-height: 1.6;
+  }
+  
+  .currency-tips {
+    background-color: #f9fafb;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  
+  .currency-tips h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 12px;
+    color: #374151;
+  }
+  
+  .currency-tips ul {
+    margin: 0;
+    padding: 0 0 0 24px;
+  }
+  
+  .currency-tips li {
+    margin-bottom: 8px;
+    color: #4b5563;
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .currencies-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .currency-card {
+      max-width: 100%;
+    }
   }
 </style>
   

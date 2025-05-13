@@ -6,6 +6,8 @@
   export let extraInfo: string = '';
   export let autoAnnounce: boolean = false;
   export let iconOnly: boolean = false;
+  export let speechRate: number = 1;
+  export let speechVolume: number = 1;
   
   let speaking = false;
   let supported = true;
@@ -27,7 +29,7 @@
     
     try {
       speaking = true;
-      await announceBill(amount, currency, extraInfo);
+      await announceBill(amount, currency, extraInfo, speechRate, speechVolume);
     } catch (error) {
       console.error('Speech error:', error);
     } finally {
