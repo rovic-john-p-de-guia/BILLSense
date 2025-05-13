@@ -6,6 +6,7 @@
   export let toCurrency = 'USD';
   export let amount = 1;
   export let showDebugInfo = false; // Enable to show debugging information
+  export let compact = false; // Add compact mode option
   
   let rate = 1;
   let loading = true;
@@ -130,34 +131,66 @@
   });
 </script>
 
-<div class="exchange-rate-widget">
+<div class="exchange-rate-widget {compact ? 'compact' : ''}">
+  {#if !compact}
   <div class="widget-header">
     <div class="icon-wrapper">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="8" />
-        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+        <line x1="16.5" y1="9.5" x2="7.5" y2="14.5" />
+        <polyline points="14 7 16.5 9.5 14 12" />
+        <polyline points="10 17 7.5 14.5 10 12" />
       </svg>
     </div>
     <div class="title">Exchange Rate</div>
   </div>
+  {/if}
   <div class="widget-content">
     {#if loading}
-      <div class="loading">Loading exchange rates...</div>
+      <div class="loading">
+        {#if compact}
+          <span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>
+        {:else}
+          <div class="loading-spinner"></div>
+          <span>Loading exchange rates</span>
+        {/if}
+      </div>
     {:else if error}
       <div class="error">
-        Unable to load exchange rates
-        {#if showDebugInfo && errorMessage}
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        {compact ? 'Error' : 'Unable to load exchange rates'}
+        {#if showDebugInfo && errorMessage && !compact}
           <div class="error-details">{errorMessage}</div>
         {/if}
       </div>
     {:else}
       <div class="rate-display">
-        <span class="amount">{amount} {getCurrencyName(fromCurrency)}</span>
-        <span class="symbol">≈</span>
-        <span class="converted">{formatCurrency(convertedValue, toCurrency)}</span>
+        {#if !compact}
+        <div class="currency-group from-currency">
+          <span class="amount">{amount}</span>
+          <span class="currency-name">{fromCurrency}</span>
+        </div>
+        <div class="conversion-arrow">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <polyline points="19 12 12 19 5 12"></polyline>
+          </svg>
+        </div>
+        {/if}
+        <div class="currency-group to-currency">
+          <span class="converted">{formatCurrency(convertedValue, toCurrency)}</span>
+          {#if !compact}
+          <span class="currency-name">{getCurrencyName(toCurrency)}</span>
+          {/if}
+        </div>
       </div>
+      {#if !compact}
       <div class="widget-footer">
-        Rates are approximate
+        <span class="disclaimer">Rates are approximate</span>
         {#if showDebugInfo && lastUpdated}
           <div class="debug-info">
             <span>Rate: {rate.toFixed(6)}</span>
@@ -165,6 +198,7 @@
           </div>
         {/if}
       </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -173,100 +207,226 @@
   .exchange-rate-widget {
     width: 100%;
     max-width: 320px;
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
     background-color: white;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .exchange-rate-widget:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+  }
+
+  .exchange-rate-widget.compact {
+    max-width: none;
+    box-shadow: none;
+    background: transparent;
+    border: none;
   }
 
   .widget-header {
     display: flex;
     align-items: center;
-    padding: 12px 16px;
-    background-color: #f5f7fa;
-    border-bottom: 1px solid #e1e4e8;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #4a6cf7 0%, #2e51ed 100%);
+    border-bottom: none;
   }
 
   .icon-wrapper {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    background-color: #0066cc;
+    background-color: rgba(255, 255, 255, 0.2);
     color: white;
     margin-right: 12px;
+    backdrop-filter: blur(4px);
   }
 
   .title {
     font-size: 16px;
-    font-weight: 500;
-    color: #333;
+    font-weight: 600;
+    color: white;
+    letter-spacing: 0.3px;
   }
 
   .widget-content {
-    padding: 16px;
-    min-height: 100px;
+    padding: 20px;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .compact .widget-content {
+    padding: 0;
+    min-height: auto;
+  }
+
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #666;
+    font-size: 14px;
+    height: 100%;
+  }
+
+  .loading-spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #4a6cf7;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .loading-dots span {
+    animation: loadingDots 1.4s infinite both;
+    display: inline-block;
+    font-size: 20px;
+    opacity: 0;
+  }
+
+  .loading-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .loading-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  @keyframes loadingDots {
+    0% { opacity: 0; transform: translateY(0); }
+    25% { opacity: 1; transform: translateY(-3px); }
+    50% { opacity: 0; transform: translateY(0); }
+    100% { opacity: 0; }
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #e53e3e;
+    font-size: 14px;
+    height: 100%;
+    text-align: center;
+    flex-wrap: wrap;
+  }
+
+  .error-details {
+    width: 100%;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #718096;
+    background-color: #f7fafc;
+    padding: 8px;
+    border-radius: 6px;
+    word-break: break-word;
   }
 
   .rate-display {
-    font-size: 18px;
-    margin-bottom: 8px;
     display: flex;
     flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    animation: fadeScale 0.5s cubic-bezier(0.165, 0.84, 0.44, 1);
   }
 
-  .amount {
+  .compact .rate-display {
+    flex-direction: row;
+    justify-content: center;
+  }
+
+  @keyframes fadeScale {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  .currency-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .from-currency .amount {
+    font-size: 24px;
+    font-weight: 600;
+    color: #2d3748;
+  }
+
+  .currency-name {
+    font-size: 14px;
+    color: #718096;
     font-weight: 500;
-    color: #000;
-    margin-bottom: 4px;
   }
 
-  .symbol {
-    color: #666;
-    margin: 2px 0;
+  .conversion-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a0aec0;
+    transform: rotate(90deg);
+    height: 28px;
+  }
+
+  .to-currency {
+    position: relative;
   }
 
   .converted {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(90deg, #4a6cf7 0%, #3b82f6 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    position: relative;
+  }
+
+  .compact .converted {
+    font-size: 20px;
     font-weight: 600;
-    color: #000;
-    font-size: 24px;
   }
 
   .widget-footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
     font-size: 12px;
-    color: #666;
-    text-align: left;
-    margin-top: 12px;
-  }
-  
-  .loading, .error {
-    font-size: 14px;
-    color: #666;
+    color: #a0aec0;
     text-align: center;
-    padding: 20px 0;
   }
-  
-  .error {
-    color: #d73a49;
+
+  .disclaimer {
+    font-style: italic;
   }
-  
-  .error-details {
-    font-size: 12px;
-    margin-top: 8px;
-    color: #d73a49;
-    opacity: 0.8;
-  }
-  
+
   .debug-info {
     margin-top: 8px;
-    font-family: monospace;
-    font-size: 10px;
-    color: #666;
-    opacity: 0.7;
     display: flex;
     flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: #718096;
+    background-color: #f7fafc;
+    padding: 8px;
+    border-radius: 6px;
+    text-align: left;
   }
 </style> 
