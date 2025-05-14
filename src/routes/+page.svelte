@@ -1764,6 +1764,56 @@
       }
     }
   }
+
+  // Add a function to handle settings updates
+  function handleSettingsUpdated() {
+    // Update target currency to match preferred currency
+    targetCurrency = preferredCurrency;
+    
+    // Apply camera settings if camera is active
+    if (stream && cameraFeed) {
+      applyCameraSettings();
+    }
+    
+    // Force application of theme
+    applyTheme(darkMode);
+    
+    console.log('Settings updated:', {
+      autoAnnounce,
+      preferredCurrency,
+      speechRate,
+      speechVolume,
+      invertCamera,
+      alwaysUseBackCamera,
+      darkMode
+    });
+  }
+  
+  // Apply camera settings function
+  function applyCameraSettings() {
+    if (!cameraFeed) return;
+    
+    // Apply camera mirror setting
+    if (invertCamera) {
+      cameraFeed.style.transform = 'scaleX(-1)';
+    } else {
+      cameraFeed.style.transform = 'scaleX(1)';
+    }
+    
+    // If camera type preference changed and we're in camera mode, restart camera
+    if (activeMethod === 'camera' && showCamera) {
+      // Stop the current camera stream
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+      
+      // Restart the camera with new settings
+      setTimeout(() => {
+        startCameraPreview();
+      }, 100);
+    }
+  }
 </script>
 
 <svelte:head>
@@ -1790,6 +1840,7 @@
   bind:invertCamera={invertCamera}
   bind:alwaysUseBackCamera={alwaysUseBackCamera}
   bind:darkMode={darkMode}
+  on:settingsUpdated={handleSettingsUpdated}
 />
 
 <div class="container">

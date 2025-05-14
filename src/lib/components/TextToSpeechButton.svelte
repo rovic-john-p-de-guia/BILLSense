@@ -24,6 +24,14 @@
     handleSpeak();
   }
   
+  // Watch for changes in speech settings
+  $: if (speaking && window?.speechSynthesis) {
+    // If speech rate or volume changes during speaking, cancel and restart
+    window.speechSynthesis.cancel();
+    announceBill(amount, currency, extraInfo, speechRate, speechVolume)
+      .catch(error => console.error('Speech error during settings update:', error));
+  }
+  
   async function handleSpeak() {
     if (speaking || !supported) return;
     

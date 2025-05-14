@@ -1,6 +1,9 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
+  
+  // Create event dispatcher
+  const dispatch = createEventDispatcher();
   
   export let show: boolean = false;
   export let autoAnnounce: boolean = false;
@@ -22,6 +25,12 @@
     darkMode
   };
   
+  // Track original settings to detect changes
+  let originalSettings = { ...tempSettings };
+  
+  // Show save success indicator
+  let showSaveSuccess = false;
+  
   let voiceSupported = false;
   let commonCurrencies = [
     { code: "USD", name: "US Dollar" },
@@ -34,34 +43,226 @@
     { code: "PHP", name: "Philippine Peso" }
   ];
   
-  // Check for voice support on mount
+  // Debounce function for performance optimization
+  function debounce(func: Function, wait: number): (...args: any[]) => void {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    return (...args: any[]) => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        func(...args);
+        timeout = null;
+      }, wait);
+    };
+  }
+  
+  // Function to update range slider fill with improved animation
+  function updateRangeFill(slider: HTMLInputElement) {
+        if (!slider) return;
+    
+        const value = (parseFloat(slider.value) - parseFloat(slider.min)) / (parseFloat(slider.max) - parseFloat(slider.min));
+    
+    // Add animation class temporarily
+    slider.classList.add('value-changing');
+    
+    // Set the new value with animation - ensure it's formatted as a percentage
+    slider.style.setProperty('--value', value * 100 + '%');
+    
+    // Force update the sliders parent node to trigger a repaint
+    if (slider.parentNode) {
+      (slider.parentNode as HTMLElement).style.opacity = '0.99';
+      setTimeout(() => {
+        if (slider.parentNode) {
+          (slider.parentNode as HTMLElement).style.opacity = '1';
+        }
+      }, 10);
+    }
+    
+    // Remove the animation class after animation completes
+    setTimeout(() => {
+      slider.classList.remove('value-changing');
+    }, 300);
+  }
+  
+  // Function to update all sliders with better animation support
+  function updateAllSliders() {
+    if (typeof document === 'undefined') return;
+    
+    // Use a small timeout to ensure DOM elements are rendered
+    setTimeout(() => {
+      // Get all sliders
+        const sliders = document.querySelectorAll<HTMLInputElement>('.enhanced-slider');
+      
+      if (!sliders || sliders.length === 0) {
+        console.warn('No sliders found in updateAllSliders');
+        return;
+      }
+      
+      console.log(`Found ${sliders.length} sliders to update`);
+      
+        sliders.forEach(slider => {
+        // First remove any existing input listeners to prevent duplicates
+        slider.removeEventListener('input', handleSliderInput);
+        
+        // Calculate normalized value (0-1)
+        const min = parseFloat(slider.min);
+        const max = parseFloat(slider.max);
+        const value = parseFloat(slider.value);
+        const normalizedValue = (value - min) / (max - min);
+        
+        console.log(`Updating slider ${slider.id}: value=${value}, normalized=${normalizedValue}`);
+        
+        // Set the CSS variable directly with proper percentage format
+        slider.style.setProperty('--value', `${normalizedValue * 100}%`);
+        
+        // Update corresponding indicator
+        if (slider.id === 'speech-rate') {
+          const rateIndicator = document.getElementById('rate-indicator');
+          if (rateIndicator) {
+            rateIndicator.textContent = `${value.toFixed(1)}x`;
+          }
+        } else if (slider.id === 'speech-volume') {
+          const volumeIndicator = document.getElementById('volume-indicator');
+          if (volumeIndicator) {
+            volumeIndicator.textContent = `${Math.round(value * 100)}%`;
+          }
+        }
+        
+        // Setup input event listeners
+        slider.addEventListener('input', handleSliderInput);
+      });
+    }, 50); // Increased timeout for reliability
+  }
+  
+  // Separate event handler function to reduce duplicate code
+  function handleSliderInput(event: Event) {
+    const slider = event.target as HTMLInputElement;
+    
+    // Calculate normalized value
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const value = parseFloat(slider.value);
+    const normalizedValue = (value - min) / (max - min);
+    
+    console.log(`Slider input: ${slider.id}, value=${value}, normalized=${normalizedValue}`);
+    
+    // Add animation class
+    slider.classList.add('value-changing');
+    
+    // Update CSS variable - ensure proper percentage format
+    slider.style.setProperty('--value', `${normalizedValue * 100}%`);
+    
+    // Since we're now using bind:value, tempSettings is already updated
+    // Log the current settings for debugging
+    console.log('Current tempSettings:', JSON.stringify(tempSettings));
+    
+    // Update the indicator visually
+    if (slider.id === 'speech-rate') {
+      const rateIndicator = document.getElementById('rate-indicator');
+      if (rateIndicator) {
+        rateIndicator.textContent = `${value.toFixed(1)}x`;
+        rateIndicator.classList.add('updating');
+        setTimeout(() => rateIndicator.classList.remove('updating'), 300);
+      }
+    } else if (slider.id === 'speech-volume') {
+      const volumeIndicator = document.getElementById('volume-indicator');
+      if (volumeIndicator) {
+        volumeIndicator.textContent = `${Math.round(value * 100)}%`;
+        volumeIndicator.classList.add('updating');
+        setTimeout(() => volumeIndicator.classList.remove('updating'), 300);
+      }
+    }
+    
+    // Force a repaint to ensure the visual update happens
+    const parent = slider.parentElement;
+    if (parent) {
+      parent.style.opacity = '0.99';
+      setTimeout(() => {
+        parent.style.opacity = '1';
+      }, 10);
+    }
+    
+    // Remove animation class after delay
+    setTimeout(() => {
+      slider.classList.remove('value-changing');
+    }, 300);
+  }
+  
+  // Helper to detect if settings have changed
+  function haveSettingsChanged(): boolean {
+    return JSON.stringify(tempSettings) !== JSON.stringify(originalSettings);
+  }
+  
+  // Check for voice support on mount and initialize
   onMount(() => {
     if (typeof window !== 'undefined') {
+      console.log('SettingsModal mounted');
       voiceSupported = 'speechSynthesis' in window;
-    }
-    
-    // Load settings from localStorage if available
-    loadSavedSettings();
-    
-    // Initialize the range sliders to show proper fill tracks
-    if (typeof window !== 'undefined') {
-      // Function to update range fill
-      const updateRangeFill = (slider: HTMLInputElement) => {
-        if (!slider) return;
-        const value = (parseFloat(slider.value) - parseFloat(slider.min)) / (parseFloat(slider.max) - parseFloat(slider.min));
-        slider.style.setProperty('--value', value.toString());
-      };
       
-      // Set up the initial values and attach event listeners
-      setTimeout(() => {
-        const sliders = document.querySelectorAll<HTMLInputElement>('.enhanced-slider');
-        sliders.forEach(slider => {
-          updateRangeFill(slider);
-          slider.addEventListener('input', () => updateRangeFill(slider));
+      // Load settings from localStorage if available
+      loadSavedSettings();
+      
+      // Initialize event listeners
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && show) {
+          // When tab becomes visible again, refresh slider visuals
+          setTimeout(updateAllSliders, 50);
+        }
+      });
+      
+      // Set up a MutationObserver to ensure sliders and toggles are initialized
+      // whenever the modal becomes visible
+      try {
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.type === 'attributes' && 
+                mutation.attributeName === 'style' &&
+                document.querySelector('.modal-backdrop')) {
+              console.log('Modal became visible via style change');
+              initializeToggles();
+              updateAllSliders();
+            }
+          });
         });
-      }, 100);
+        
+        // Start observing the body for style changes (modal appearing)
+        observer.observe(document.body, { 
+          attributes: true,
+          childList: true,
+          subtree: true
+        });
+      } catch (error) {
+        console.error('Error setting up MutationObserver:', error);
+      }
     }
+    
+    // Set original settings on component mount
+    originalSettings = { ...tempSettings };
+    
+    return () => {
+      // Cleanup: hide the modal on component unmount
+      show = false;
+    };
   });
+  
+  // Update sliders when modal is shown or temp settings change
+  $: if (show || tempSettings) {
+    setTimeout(updateAllSliders, 50);
+  }
+  
+  // Watch for changes in specific settings
+  $: if (tempSettings.speechRate) {
+    if (typeof document !== 'undefined' && show) {
+      const rateSlider = document.getElementById('speech-rate') as HTMLInputElement;
+      if (rateSlider) updateRangeFill(rateSlider);
+    }
+  }
+  
+  $: if (tempSettings.speechVolume) {
+    if (typeof document !== 'undefined' && show) {
+      const volumeSlider = document.getElementById('speech-volume') as HTMLInputElement;
+      if (volumeSlider) updateRangeFill(volumeSlider);
+    }
+  }
   
   // Load settings from localStorage if available
   function loadSavedSettings() {
@@ -83,6 +284,12 @@
         
         // Update temp settings
         resetSettings();
+        
+        // Apply theme based on loaded settings
+        applyTheme(darkMode);
+        
+        // Update original settings to match loaded settings
+        originalSettings = { ...tempSettings };
       }
     } catch (error) {
       console.error('Error loading saved settings:', error);
@@ -91,7 +298,9 @@
   
   // Update parent component with new settings
   function saveSettings() {
-    // Update parent variables
+    console.log('Saving settings', tempSettings);
+    
+    // Update parent variables - need to explicitly set them
     autoAnnounce = tempSettings.autoAnnounce;
     preferredCurrency = tempSettings.preferredCurrency;
     speechRate = tempSettings.speechRate;
@@ -106,13 +315,51 @@
     // Save to localStorage
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
-        localStorage.setItem('moneyScanner.settings', JSON.stringify(tempSettings));
+        const settingsJson = JSON.stringify(tempSettings);
+        console.log('Saving to localStorage:', settingsJson);
+        localStorage.setItem('moneyScanner.settings', settingsJson);
+        
+        // Update original settings to match the new saved settings
+        originalSettings = { ...tempSettings };
+        
+        // Force a DOM update of all toggles to ensure they're in the correct state
+        setTimeout(() => {
+          // Reinitialize all toggles to ensure DOM state matches tempSettings
+          initializeToggles();
+          // Update all sliders
+          updateAllSliders();
+        }, 50);
+        
+        // Dispatch event that settings were updated
+        dispatch('settingsUpdated', {
+          autoAnnounce,
+          preferredCurrency,
+          speechRate,
+          speechVolume,
+          invertCamera,
+          alwaysUseBackCamera,
+          darkMode
+        });
+        
+        // Show success indicator
+        showSaveSuccess = true;
+        setTimeout(() => {
+          showSaveSuccess = false;
+          // Close modal after showing success
+          closeModal();
+        }, 1000);
+        
+        console.log('Settings saved successfully:', tempSettings);
       } catch (error) {
         console.error('Error saving settings:', error);
+        alert('Failed to save settings. Please try again.');
+        // Don't close modal if save fails
       }
-    }
-    
+    } else {
+      console.warn('localStorage not available, cannot save settings');
+      // Close modal even if localStorage not available
     closeModal();
+    }
   }
   
   // Helper function to apply theme
@@ -240,11 +487,28 @@
   }
   
   function closeModal() {
+    console.log('Closing modal, original settings:', originalSettings, 'darkMode:', darkMode);
     show = false;
+    
+    // Only dispatch events if dark mode was explicitly changed through the UI
+    // and the change was saved directly (not through the Save button)
+    if (originalSettings.darkMode !== darkMode && tempSettings.darkMode === darkMode) {
+      console.log('Dark mode changed directly, dispatching event');
+      dispatch('settingsUpdated', {
+        autoAnnounce,
+        preferredCurrency,
+        speechRate,
+        speechVolume,
+        invertCamera,
+        alwaysUseBackCamera,
+        darkMode
+      });
+    }
   }
   
-  // Reset to current settings
+  // Reset to current settings with enhanced animations
   function resetSettings() {
+    // Reset temp settings to match parent component values
     tempSettings = {
       autoAnnounce,
       preferredCurrency,
@@ -254,6 +518,39 @@
       alwaysUseBackCamera,
       darkMode
     };
+    
+    // If dark mode was modified in the temp settings, reapply the original theme
+    if (tempSettings.darkMode !== originalSettings.darkMode) {
+      applyTheme(tempSettings.darkMode);
+    }
+    
+    // Update sliders visual state after settings reset
+    setTimeout(() => {
+      // Update all sliders with animation
+      updateAllSliders();
+      
+      // Show reset animation on all settings sections
+      const sections = document.querySelectorAll('.settings-section');
+      sections.forEach((section, index) => {
+        setTimeout(() => {
+          section.classList.add('section-updated');
+          setTimeout(() => {
+            section.classList.remove('section-updated');
+          }, 300);
+        }, index * 50); // Stagger the animations
+      });
+      
+      // Add flash to all toggles and sliders
+      document.querySelectorAll('.switch, .enhanced-slider').forEach(element => {
+        element.classList.add('reset-flash');
+        setTimeout(() => {
+          element.classList.remove('reset-flash');
+        }, 500);
+      });
+      
+      // Update toggle ripples
+      setupToggleRipples();
+    }, 50);
   }
   
   // Test voice feature
@@ -270,9 +567,237 @@
     }
   }
   
-  // Reset settings when modal is opened
+  // Ensure sliders are properly initialized when modal is opened
   $: if (show) {
-    resetSettings();
+    console.log('Modal shown, initializing settings');
+    
+    // Hide save success indicator when modal opens
+    showSaveSuccess = false;
+    
+    // Wait for DOM to render before initializing
+    setTimeout(() => {
+      // Only initialize tempSettings once when modal is first opened
+      if (JSON.stringify(tempSettings) === '{}' || !tempSettings) {
+        console.log('Setting initial tempSettings from parent props');
+        tempSettings = {
+          autoAnnounce,
+          preferredCurrency,
+          speechRate,
+          speechVolume,
+          invertCamera,
+          alwaysUseBackCamera,
+          darkMode
+        };
+        
+        // Set original settings to detect changes
+        originalSettings = { ...tempSettings };
+      } else {
+        console.log('Keeping existing tempSettings:', tempSettings);
+      }
+      
+      // Initialize all toggles with direct DOM manipulation for better reliability
+      initializeToggles();
+      
+      // Use multiple timing attempts to ensure initialization works
+      updateAllSliders();
+      setTimeout(updateAllSliders, 100);
+      setTimeout(updateAllSliders, 300);
+    }, 50);
+  }
+  
+  // New function to directly initialize toggles without relying on reactive binding
+  function initializeToggles() {
+    // Give DOM time to render
+    setTimeout(() => {
+      try {
+        console.log('Initializing toggles with values:', JSON.stringify(tempSettings));
+        
+        // Set toggle switches directly through DOM
+        const darkModeToggle = document.getElementById('dark-mode') as HTMLInputElement;
+        if (darkModeToggle) {
+          console.log(`Setting dark mode toggle to: ${tempSettings.darkMode}`);
+          darkModeToggle.checked = tempSettings.darkMode;
+          updateToggleVisuals(darkModeToggle);
+        } else {
+          console.error('Dark mode toggle not found in DOM');
+        }
+        
+        const autoAnnounceToggle = document.getElementById('auto-announce') as HTMLInputElement;
+        if (autoAnnounceToggle) {
+          console.log(`Setting auto announce toggle to: ${tempSettings.autoAnnounce}`);
+          autoAnnounceToggle.checked = tempSettings.autoAnnounce;
+          updateToggleVisuals(autoAnnounceToggle);
+        } else {
+          console.error('Auto announce toggle not found in DOM');
+        }
+        
+        const invertCameraToggle = document.getElementById('invert-camera') as HTMLInputElement;
+        if (invertCameraToggle) {
+          console.log(`Setting invert camera toggle to: ${tempSettings.invertCamera}`);
+          invertCameraToggle.checked = tempSettings.invertCamera;
+          updateToggleVisuals(invertCameraToggle);
+        } else {
+          console.error('Invert camera toggle not found in DOM');
+        }
+        
+        const alwaysBackCameraToggle = document.getElementById('always-back-camera') as HTMLInputElement;
+        if (alwaysBackCameraToggle) {
+          console.log(`Setting back camera toggle to: ${tempSettings.alwaysUseBackCamera}`);
+          alwaysBackCameraToggle.checked = tempSettings.alwaysUseBackCamera;
+          updateToggleVisuals(alwaysBackCameraToggle);
+        } else {
+          console.error('Always back camera toggle not found in DOM');
+        }
+        
+        // Setup ripple effects and event listeners
+        setupToggleRipples();
+      } catch (error) {
+        console.error('Error initializing toggles:', error);
+      }
+    }, 100);
+  }
+  
+  // Helper to update toggle visual state
+  function updateToggleVisuals(toggleEl: HTMLInputElement) {
+    const slider = toggleEl.nextElementSibling as HTMLElement;
+    if (slider) {
+      slider.style.backgroundColor = toggleEl.checked ? '#3b82f6' : '#cbd5e1';
+    }
+  }
+  
+  // Modified toggle event handlers - replace bind:checked with these
+  function handleDarkModeToggle(e: Event) {
+    const toggle = e.target as HTMLInputElement;
+    console.log('Dark mode toggle changed to:', toggle.checked);
+    tempSettings.darkMode = toggle.checked;
+    addToggleRipple(e);
+    
+    // Apply theme immediately for visual feedback
+    applyTheme(tempSettings.darkMode);
+    updateToggleVisuals(toggle);
+    console.log('tempSettings after dark mode toggle:', tempSettings);
+  }
+  
+  function handleAutoAnnounceToggle(e: Event) {
+    const toggle = e.target as HTMLInputElement;
+    console.log('Auto announce toggle changed to:', toggle.checked);
+    tempSettings.autoAnnounce = toggle.checked;
+    addToggleRipple(e);
+    updateToggleVisuals(toggle);
+    console.log('tempSettings after auto announce toggle:', tempSettings);
+  }
+  
+  function handleInvertCameraToggle(e: Event) {
+    const toggle = e.target as HTMLInputElement;
+    console.log('Invert camera toggle changed to:', toggle.checked);
+    tempSettings.invertCamera = toggle.checked;
+    addToggleRipple(e);
+    updateToggleVisuals(toggle);
+    console.log('tempSettings after invert camera toggle:', tempSettings);
+  }
+  
+  function handleBackCameraToggle(e: Event) {
+    const toggle = e.target as HTMLInputElement;
+    console.log('Back camera toggle changed to:', toggle.checked);
+    tempSettings.alwaysUseBackCamera = toggle.checked;
+    addToggleRipple(e);
+    updateToggleVisuals(toggle);
+    console.log('tempSettings after back camera toggle:', tempSettings);
+  }
+  
+  // Function to add ripple effect to toggle switches with improved reliability
+  function addToggleRipple(event: Event) {
+    if (typeof document === 'undefined') return;
+    
+    const toggleEl = event.target as HTMLInputElement;
+    const slider = toggleEl.nextElementSibling as HTMLElement;
+    
+    if (!slider) return;
+    
+    // Remove any existing ripples first
+    const existingRipples = slider.querySelectorAll('.toggle-ripple');
+    existingRipples.forEach(ripple => ripple.remove());
+    
+    // Create ripple element
+    const ripple = document.createElement('span');
+    ripple.className = 'toggle-ripple';
+    
+    // Position ripple at proper location based on checked state
+    ripple.style.left = toggleEl.checked ? '75%' : '25%';
+    
+    // Make it visible immediately
+    slider.appendChild(ripple);
+    
+    // Force a browser reflow to ensure animation triggers
+    void ripple.offsetWidth;
+    
+    // Remove after animation completes
+    setTimeout(() => {
+      ripple.remove();
+    }, 600);
+  }
+  
+  // Setup toggle effect directly and immediately
+  function setupToggleRipples() {
+    if (typeof document === 'undefined') return;
+    
+    // Force direct event handler attachment to all toggles
+    setTimeout(() => {
+      const toggles = document.querySelectorAll('.switch input[type="checkbox"]');
+      toggles.forEach(toggle => {
+        // Remove existing listeners to prevent duplicates
+        toggle.removeEventListener('change', addToggleRipple);
+        
+        // Add new listener
+        toggle.addEventListener('change', addToggleRipple);
+        
+        // Force trigger ripple effect on first render for any checked toggles
+        if ((toggle as HTMLInputElement).checked) {
+          const slider = toggle.nextElementSibling as HTMLElement;
+          if (slider) {
+            // Create initial ripple for checked toggles
+            const initialRipple = document.createElement('span');
+            initialRipple.className = 'toggle-ripple initial-state';
+            initialRipple.style.left = '75%';
+            slider.appendChild(initialRipple);
+            
+            // Remove after animation
+            setTimeout(() => {
+              initialRipple.remove();
+            }, 600);
+          }
+        }
+      });
+    }, 10);
+  }
+  
+  // Update toggles after show is true
+  $: if (show) {
+    // Initialize settings
+    setTimeout(() => {
+      updateAllSliders();
+      setupToggleRipples();
+      
+      // Force immediate display of slider values and fill bars
+      const rateSlider = document.getElementById('speech-rate') as HTMLInputElement;
+      const volumeSlider = document.getElementById('speech-volume') as HTMLInputElement;
+      
+      if (rateSlider) {
+        rateSlider.style.setProperty('--value', ((parseFloat(rateSlider.value) - parseFloat(rateSlider.min)) / (parseFloat(rateSlider.max) - parseFloat(rateSlider.min))) * 100 + '%');
+        const rateIndicator = document.getElementById('rate-indicator');
+        if (rateIndicator) {
+          rateIndicator.textContent = `${parseFloat(rateSlider.value).toFixed(1)}x`;
+        }
+      }
+      
+      if (volumeSlider) {
+        volumeSlider.style.setProperty('--value', ((parseFloat(volumeSlider.value) - parseFloat(volumeSlider.min)) / (parseFloat(volumeSlider.max) - parseFloat(volumeSlider.min))) * 100 + '%');
+        const volumeIndicator = document.getElementById('volume-indicator');
+        if (volumeIndicator) {
+          volumeIndicator.textContent = `${Math.round(parseFloat(volumeSlider.value) * 100)}%`;
+        }
+      }
+    }, 50);
   }
 </script>
 
@@ -281,7 +806,7 @@
     <div class="modal" on:click|stopPropagation>
       <div class="modal-header">
         <h2>Settings</h2>
-        <button class="close-button" on:click={closeModal}>×</button>
+        <button class="close-button" on:click={closeModal} aria-label="Close settings">×</button>
       </div>
       
       <div class="modal-content">
@@ -299,8 +824,7 @@
                 <input 
                   type="checkbox" 
                   id="dark-mode" 
-                  bind:checked={tempSettings.darkMode}
-                  on:change={() => applyTheme(tempSettings.darkMode)}
+                  on:change={handleDarkModeToggle}
                 >
                 <span class="slider round"></span>
               </label>
@@ -347,7 +871,7 @@
                 <input 
                   type="checkbox" 
                   id="auto-announce" 
-                  bind:checked={tempSettings.autoAnnounce}
+                  on:change={handleAutoAnnounceToggle}
                 >
                 <span class="slider round"></span>
               </label>
@@ -362,7 +886,7 @@
                   <span class="setting-description">How fast the voice speaks (1.0 is normal speed)</span>
                 </div>
                 <div class="indicator-container">
-                  <span class="range-value-indicator">{tempSettings.speechRate}x</span>
+                  <span class="range-value-indicator" id="rate-indicator">{tempSettings.speechRate.toFixed(1)}x</span>
                 </div>
               </div>
               <div class="slider-container">
@@ -374,6 +898,8 @@
                   step="0.1" 
                   bind:value={tempSettings.speechRate}
                   class="enhanced-slider"
+                  style="--value: {((tempSettings.speechRate - 0.5) / 1.5) * 100}%"
+                  on:input={handleSliderInput}
                 >
                 <div class="slider-ticks">
                   <span>0.5x</span>
@@ -391,7 +917,7 @@
                   <span class="setting-description">How loud the voice speaks</span>
                 </div>
                 <div class="indicator-container">
-                  <span class="range-value-indicator">{Math.round(tempSettings.speechVolume * 100)}%</span>
+                  <span class="range-value-indicator" id="volume-indicator">{Math.round(tempSettings.speechVolume * 100)}%</span>
                 </div>
               </div>
               <div class="slider-container">
@@ -403,6 +929,8 @@
                   step="0.1" 
                   bind:value={tempSettings.speechVolume}
                   class="enhanced-slider"
+                  style="--value: {tempSettings.speechVolume * 100}%"
+                  on:input={handleSliderInput}
                 >
                 <div class="slider-ticks">
                   <span>0%</span>
@@ -446,7 +974,7 @@
                 <input 
                   type="checkbox" 
                   id="always-back-camera" 
-                  bind:checked={tempSettings.alwaysUseBackCamera}
+                  on:change={handleBackCameraToggle}
                 >
                 <span class="slider round"></span>
               </label>
@@ -463,7 +991,7 @@
                 <input 
                   type="checkbox" 
                   id="invert-camera" 
-                  bind:checked={tempSettings.invertCamera}
+                  on:change={handleInvertCameraToggle}
                 >
                 <span class="slider round"></span>
               </label>
@@ -473,8 +1001,28 @@
       </div>
       
       <div class="modal-footer">
-        <button class="btn-secondary" on:click={resetSettings}>Reset</button>
-        <button class="btn-primary" on:click={saveSettings}>Save Changes</button>
+        <button 
+          class="btn-secondary" 
+          on:click={resetSettings}
+          disabled={!haveSettingsChanged()}
+          title={haveSettingsChanged() ? "Reset to current settings" : "No changes to reset"}
+        >Reset</button>
+        
+        <button 
+          class="btn-primary {showSaveSuccess ? 'save-success' : ''}" 
+          on:click={saveSettings}
+          disabled={!haveSettingsChanged()}
+          title={haveSettingsChanged() ? "Save your changes" : "No changes to save"}
+        >
+          {#if showSaveSuccess}
+            <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            Saved!
+          {:else}
+            Save Changes
+          {/if}
+        </button>
       </div>
     </div>
   </div>
@@ -642,14 +1190,19 @@
   
   .enhanced-slider {
     -webkit-appearance: none;
+    appearance: none;
     width: 100%;
     height: 8px;
     border-radius: 10px;
-    background: #e5e7eb;
     outline: none;
     padding: 0;
     margin: 0;
     cursor: pointer;
+    position: relative;
+    will-change: background;
+    /* Important: Fixed gradient background with CSS variable */
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 var(--value, 0%), #e5e7eb var(--value, 0%), #e5e7eb 100%);
+    transition: background-color 0.3s ease;
   }
   
   .enhanced-slider::-webkit-slider-thumb {
@@ -662,8 +1215,10 @@
     cursor: pointer;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.15);
     border: 2px solid #ffffff;
-    transition: all 0.2s ease;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease;
     margin-top: -8px;
+    will-change: transform, box-shadow;
+    z-index: 2;
   }
   
   .enhanced-slider::-moz-range-thumb {
@@ -674,96 +1229,17 @@
     cursor: pointer;
     box-shadow: 0 0 2px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.15);
     border: 2px solid #ffffff;
-    transition: all 0.2s ease;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease;
+    will-change: transform, box-shadow;
+    z-index: 2;
   }
   
-  .enhanced-slider::-webkit-slider-runnable-track {
-    height: 8px;
-    border-radius: 10px;
-    background: #e5e7eb;
+  /* Fixed dark theme for enhanced slider */
+  .dark-theme .enhanced-slider {
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 var(--value, 0%), #374151 var(--value, 0%), #374151 100%);
   }
   
-  .enhanced-slider::-moz-range-track {
-    height: 8px;
-    border-radius: 10px;
-    background: #e5e7eb;
-  }
-  
-  .enhanced-slider:hover::-webkit-slider-thumb {
-    transform: scale(1.1);
-    box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), 0 3px 8px rgba(0, 0, 0, 0.2);
-  }
-  
-  .enhanced-slider:hover::-moz-range-thumb {
-    transform: scale(1.1);
-    box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), 0 3px 8px rgba(0, 0, 0, 0.2);
-  }
-  
-  .enhanced-slider:active::-webkit-slider-thumb {
-    transform: scale(1.15);
-    box-shadow: 0 0 6px rgba(59, 130, 246, 0.4), 0 4px 10px rgba(0, 0, 0, 0.25);
-  }
-  
-  .enhanced-slider:active::-moz-range-thumb {
-    transform: scale(1.15);
-    box-shadow: 0 0 6px rgba(59, 130, 246, 0.4), 0 4px 10px rgba(0, 0, 0, 0.25);
-  }
-  
-  .range-value-indicator {
-    font-size: 16px;
-    font-weight: 600;
-    color: #3b82f6;
-    min-width: 48px;
-    text-align: right;
-    transition: all 0.2s ease;
-  }
-  
-  /* Custom track fill effect */
-  .enhanced-slider::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #e5e7eb 0);
-    height: 8px;
-    border-radius: 10px;
-  }
-  
-  .enhanced-slider::-moz-range-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #e5e7eb 0);
-    height: 8px;
-    border-radius: 10px;
-  }
-  
-  /* Dark mode adjustments */
-  .dark-theme .enhanced-slider::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #374151 0);
-  }
-  
-  .dark-theme .enhanced-slider::-moz-range-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #374151 0);
-  }
-  
-  .dark-theme .range-value-indicator {
-    color: #60a5fa;
-  }
-  
-  /* Add some JS to make the track fill work correctly */
-  :global(.enhanced-slider) {
-    position: relative;
-  }
-  
-  /* Toggle switch */
-  .switch {
-    position: relative;
-    display: inline-block;
-    width: 60px;
-    height: 30px;
-    user-select: none;
-  }
-  
-  .switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-  
+  /* Fixed toggle styling for better visibility and response */
   .slider {
     position: absolute;
     cursor: pointer;
@@ -771,10 +1247,15 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: var(--color-bg-accent, #cbd5e1);
-    transition: .3s;
+    background-color: #cbd5e1;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 30px;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    overflow: visible;
+  }
+  
+  input:checked + .slider {
+    background-color: #3b82f6;
   }
   
   .slider:before {
@@ -785,40 +1266,131 @@
     left: 4px;
     bottom: 4px;
     background-color: white;
-    transition: .3s cubic-bezier(.17,.67,.45,1.32);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 50%;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    z-index: 2;
-  }
-  
-  input:checked + .slider {
-    background-color: var(--color-button-primary, #3b82f6);
-  }
-  
-  input:focus + .slider {
-    box-shadow: 0 0 2px var(--color-button-primary, #3b82f6);
+    z-index: 3;
+    will-change: transform, box-shadow;
   }
   
   input:checked + .slider:before {
     transform: translateX(30px);
+    background-color: white;
+    box-shadow: 0 0 4px 1px rgba(0, 0, 0, 0.1);
   }
   
-  /* Keep hover and press effect styles */
-  .switch:hover .slider:before {
-    box-shadow: 0 0 0 4px rgba(203, 213, 225, 0.3);
+  /* Improved range value indicator */
+  .range-value-indicator {
+    font-size: 16px;
+    font-weight: 600;
+    color: #3b82f6;
+    min-width: 48px;
+    text-align: center;
+    transition: all 0.2s ease;
   }
   
-  .switch:hover input:checked + .slider:before {
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+  .range-value-indicator.updating {
+    animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    color: #2563eb;
+    text-shadow: 0 0 5px rgba(59, 130, 246, 0.3);
   }
   
-  /* Add press effect */
-  .switch:active .slider:before {
-    width: 28px;
+  @keyframes pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+    100% { transform: scale(1); }
   }
   
-  .switch:active input:checked + .slider:before {
-    left: -2px;
+  /* Fixed indicator container styling */
+  .indicator-container {
+    background-color: #e0e8ff;
+    border-radius: 6px;
+    padding: 4px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    min-width: 60px;
+  }
+  
+  .indicator-container:hover {
+    background-color: #d0dcff;
+  }
+  
+  .slider-ticks {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    padding: 0 10px;
+    font-size: 12px;
+    color: var(--color-text-secondary, #64748b);
+  }
+  
+  /* Reset animation flash */
+  .reset-flash {
+    animation: flash-glow 0.6s cubic-bezier(0.215, 0.61, 0.355, 1);
+    position: relative;
+    z-index: 1;
+  }
+  
+  @keyframes flash-glow {
+    0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.2); }
+    100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  }
+  
+  /* Save button success animation */
+  .btn-primary.save-success {
+    background-color: var(--color-success, #22c55e);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background-color 0.3s ease;
+  }
+  
+  .check-icon {
+    animation: check-appear 0.4s cubic-bezier(0.2, 0.8, 0.2, 1.4);
+    will-change: transform, opacity;
+  }
+  
+  @keyframes check-appear {
+    0% {
+      transform: scale(0) rotate(-45deg);
+      opacity: 0;
+    }
+    50% {
+      transform: scale(1.3) rotate(0deg);
+    }
+    100% {
+      transform: scale(1) rotate(0deg);
+      opacity: 1;
+    }
+  }
+  
+  /* Settings section update animation */
+  .section-updated {
+    animation: section-highlight 0.5s ease;
+  }
+  
+  @keyframes section-highlight {
+    0% { background-color: rgba(59, 130, 246, 0); }
+    30% { background-color: rgba(59, 130, 246, 0.08); }
+    100% { background-color: rgba(59, 130, 246, 0); }
+  }
+  
+  /* Indicator pulse animation */
+  .range-value-indicator {
+    animation: pulse-subtle 2s infinite alternate;
+  }
+  
+  @keyframes pulse-subtle {
+    0% {
+      transform: scale(1);
+    }
+    100% {
+      transform: scale(1.05);
+    }
   }
   
   /* Buttons */
@@ -835,10 +1407,18 @@
   .btn-primary {
     background-color: var(--color-button-primary, #3b82f6);
     color: white;
+    position: relative;
+    overflow: hidden;
   }
   
   .btn-primary:hover {
     background-color: var(--color-button-primary-hover, #2563eb);
+  }
+  
+  .btn-primary:disabled, .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
   }
   
   .btn-secondary {
