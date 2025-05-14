@@ -10,6 +10,8 @@
   export let invertCamera: boolean = true;
   export let alwaysUseBackCamera: boolean = true;
   export let darkMode: boolean = false;
+  export let hapticFeedback: boolean = true;
+  export let showWelcome: boolean = true;
   
   // Create a copy of settings for editing
   let tempSettings = {
@@ -19,8 +21,13 @@
     speechVolume,
     invertCamera,
     alwaysUseBackCamera,
-    darkMode
+    darkMode,
+    hapticFeedback,
+    showWelcome
   };
+  
+  // Track previous state of auto-announce to detect when it's turned on
+  let previousAutoAnnounce = autoAnnounce;
   
   let voiceSupported = false;
   let commonCurrencies = [
@@ -44,22 +51,71 @@
     loadSavedSettings();
     
     // Initialize the range sliders to show proper fill tracks
+    const initializeSliders = () => {
+      if (typeof window !== 'undefined' && document.readyState === 'complete') {
+        // Function to update range fill
+        const updateRangeFill = (slider: HTMLInputElement) => {
+          if (!slider) return;
+          const value = (parseFloat(slider.value) - parseFloat(slider.min)) / (parseFloat(slider.max) - parseFloat(slider.min));
+          slider.style.setProperty('--value', value.toString());
+        };
+        
+        // Set up the initial values and attach event listeners
+        setTimeout(() => {
+          const sliders = document.querySelectorAll<HTMLInputElement>('.enhanced-slider');
+          if (sliders.length > 0) {
+            console.log('Initializing', sliders.length, 'enhanced sliders');
+            sliders.forEach(slider => {
+              updateRangeFill(slider);
+              
+              // Create a handler function for each slider
+              const inputHandler = () => updateRangeFill(slider);
+              
+              // Store the handler function on the element for future reference
+              // Remove old handler if it exists
+              const oldHandler = (slider as any)._inputHandler;
+              if (oldHandler) {
+                slider.removeEventListener('input', oldHandler);
+              }
+              
+              // Add the new handler and store reference
+              slider.addEventListener('input', inputHandler);
+              (slider as any)._inputHandler = inputHandler;
+            });
+          }
+        }, 100);
+      } else {
+        // If document not ready, wait a bit longer
+        setTimeout(initializeSliders, 50);
+      }
+    };
+    
+    // Start the initialization process
+    initializeSliders();
+    
+    // Also reinitialize when the modal is shown
     if (typeof window !== 'undefined') {
-      // Function to update range fill
-      const updateRangeFill = (slider: HTMLInputElement) => {
-        if (!slider) return;
-        const value = (parseFloat(slider.value) - parseFloat(slider.min)) / (parseFloat(slider.max) - parseFloat(slider.min));
-        slider.style.setProperty('--value', value.toString());
-      };
+      const observer = new MutationObserver((mutations: MutationRecord[]) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes' && 
+              mutation.attributeName === 'style' && 
+              document.querySelector('.modal-backdrop')) {
+            initializeSliders();
+            break;
+          }
+        }
+      });
       
-      // Set up the initial values and attach event listeners
+      // Start observing the body for modal changes
       setTimeout(() => {
-        const sliders = document.querySelectorAll<HTMLInputElement>('.enhanced-slider');
-        sliders.forEach(slider => {
-          updateRangeFill(slider);
-          slider.addEventListener('input', () => updateRangeFill(slider));
-        });
-      }, 100);
+        if (document.body) {
+          observer.observe(document.body, { 
+            attributes: true,
+            childList: true,
+            subtree: true
+          });
+        }
+      }, 500);
     }
   });
   
@@ -80,6 +136,8 @@
         invertCamera = parsedSettings.invertCamera ?? invertCamera;
         alwaysUseBackCamera = parsedSettings.alwaysUseBackCamera ?? alwaysUseBackCamera;
         darkMode = parsedSettings.darkMode ?? darkMode;
+        hapticFeedback = parsedSettings.hapticFeedback ?? hapticFeedback;
+        showWelcome = parsedSettings.showWelcome ?? showWelcome;
         
         // Update temp settings
         resetSettings();
@@ -91,6 +149,8 @@
   
   // Update parent component with new settings
   function saveSettings() {
+    console.log('Saving settings:', tempSettings);
+    
     // Update parent variables
     autoAnnounce = tempSettings.autoAnnounce;
     preferredCurrency = tempSettings.preferredCurrency;
@@ -99,6 +159,8 @@
     invertCamera = tempSettings.invertCamera;
     alwaysUseBackCamera = tempSettings.alwaysUseBackCamera;
     darkMode = tempSettings.darkMode;
+    hapticFeedback = tempSettings.hapticFeedback;
+    showWelcome = tempSettings.showWelcome;
     
     // Apply dark mode immediately when saved
     applyTheme(darkMode);
@@ -107,6 +169,7 @@
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('moneyScanner.settings', JSON.stringify(tempSettings));
+        console.log('Settings saved to localStorage');
       } catch (error) {
         console.error('Error saving settings:', error);
       }
@@ -252,7 +315,9 @@
       speechVolume,
       invertCamera,
       alwaysUseBackCamera,
-      darkMode
+      darkMode,
+      hapticFeedback,
+      showWelcome
     };
   }
   
@@ -270,9 +335,36 @@
     }
   }
   
+  // Auto-play short sample when auto-announce is turned on
+  function playAutoAnnounceSample() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      console.log('Playing auto-announce sample with rate:', tempSettings.speechRate, 'volume:', tempSettings.speechVolume);
+      
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance("Auto-announce enabled.");
+      utterance.rate = tempSettings.speechRate;
+      utterance.volume = tempSettings.speechVolume;
+      
+      window.speechSynthesis.speak(utterance);
+    }
+  }
+  
   // Reset settings when modal is opened
   $: if (show) {
     resetSettings();
+    previousAutoAnnounce = tempSettings.autoAnnounce;
+  }
+  
+  // Watch for changes to auto-announce and play sample when turned on
+  $: {
+    if (voiceSupported && tempSettings.autoAnnounce && !previousAutoAnnounce) {
+      // Auto-announce was just turned ON, play a sample
+      playAutoAnnounceSample();
+    }
+    // Update the previous value after handling the change
+    previousAutoAnnounce = tempSettings.autoAnnounce;
   }
 </script>
 
@@ -299,8 +391,12 @@
                 <input 
                   type="checkbox" 
                   id="dark-mode" 
-                  bind:checked={tempSettings.darkMode}
-                  on:change={() => applyTheme(tempSettings.darkMode)}
+                  checked={tempSettings.darkMode}
+                  on:click={() => {
+                    tempSettings.darkMode = !tempSettings.darkMode;
+                    applyTheme(tempSettings.darkMode);
+                    console.log("Dark mode toggled to:", tempSettings.darkMode);
+                  }}
                 >
                 <span class="slider round"></span>
               </label>
@@ -343,11 +439,19 @@
               <span class="setting-description">Automatically announce bill value and currency when detected</span>
             </div>
             <div class="setting-control">
-              <label class="switch" title="Toggle auto-announce">
+              <label class="switch">
                 <input 
                   type="checkbox" 
                   id="auto-announce" 
-                  bind:checked={tempSettings.autoAnnounce}
+                  checked={tempSettings.autoAnnounce}
+                  on:click={() => {
+                    tempSettings.autoAnnounce = !tempSettings.autoAnnounce;
+                    // When turned on, play a sample
+                    if (tempSettings.autoAnnounce && voiceSupported) {
+                      setTimeout(() => playAutoAnnounceSample(), 100);
+                    }
+                    console.log("Auto-announce toggled to:", tempSettings.autoAnnounce);
+                  }}
                 >
                 <span class="slider round"></span>
               </label>
@@ -361,11 +465,8 @@
                   <label for="speech-rate">Voice Speed</label>
                   <span class="setting-description">How fast the voice speaks (1.0 is normal speed)</span>
                 </div>
-                <div class="indicator-container">
-                  <span class="range-value-indicator">{tempSettings.speechRate}x</span>
-                </div>
               </div>
-              <div class="slider-container">
+              <div class="slider-wrapper">
                 <input 
                   type="range" 
                   id="speech-rate" 
@@ -375,12 +476,7 @@
                   bind:value={tempSettings.speechRate}
                   class="enhanced-slider"
                 >
-                <div class="slider-ticks">
-                  <span>0.5x</span>
-                  <span>1x</span>
-                  <span>1.5x</span>
-                  <span>2x</span>
-                </div>
+                <span class="range-value-indicator">{tempSettings.speechRate}x</span>
               </div>
             </div>
             
@@ -390,11 +486,8 @@
                   <label for="speech-volume">Voice Volume</label>
                   <span class="setting-description">How loud the voice speaks</span>
                 </div>
-                <div class="indicator-container">
-                  <span class="range-value-indicator">{Math.round(tempSettings.speechVolume * 100)}%</span>
-                </div>
               </div>
-              <div class="slider-container">
+              <div class="slider-wrapper">
                 <input 
                   type="range" 
                   id="speech-volume" 
@@ -404,13 +497,7 @@
                   bind:value={tempSettings.speechVolume}
                   class="enhanced-slider"
                 >
-                <div class="slider-ticks">
-                  <span>0%</span>
-                  <span>25%</span>
-                  <span>50%</span>
-                  <span>75%</span>
-                  <span>100%</span>
-                </div>
+                <span class="range-value-indicator">{Math.round(tempSettings.speechVolume * 100)}%</span>
               </div>
             </div>
             
@@ -446,7 +533,11 @@
                 <input 
                   type="checkbox" 
                   id="always-back-camera" 
-                  bind:checked={tempSettings.alwaysUseBackCamera}
+                  checked={tempSettings.alwaysUseBackCamera}
+                  on:click={() => {
+                    tempSettings.alwaysUseBackCamera = !tempSettings.alwaysUseBackCamera;
+                    console.log("Always use back camera toggled to:", tempSettings.alwaysUseBackCamera);
+                  }}
                 >
                 <span class="slider round"></span>
               </label>
@@ -463,7 +554,58 @@
                 <input 
                   type="checkbox" 
                   id="invert-camera" 
-                  bind:checked={tempSettings.invertCamera}
+                  checked={tempSettings.invertCamera}
+                  on:click={() => {
+                    tempSettings.invertCamera = !tempSettings.invertCamera;
+                    console.log("Invert camera toggled to:", tempSettings.invertCamera);
+                  }}
+                >
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Other Settings Section -->
+        <div class="settings-section">
+          <h3>Other Settings</h3>
+          
+          <div class="setting-item">
+            <div class="setting-label">
+              <label for="haptic-feedback">Haptic feedback</label>
+              <span class="setting-description">Vibrate when scanning completes</span>
+            </div>
+            <div class="setting-control">
+              <label class="switch">
+                <input 
+                  type="checkbox" 
+                  id="haptic-feedback" 
+                  checked={tempSettings.hapticFeedback}
+                  on:click={() => {
+                    tempSettings.hapticFeedback = !tempSettings.hapticFeedback;
+                    console.log("Haptic feedback toggled to:", tempSettings.hapticFeedback);
+                  }}
+                >
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-label">
+              <label for="show-welcome">Show welcome dialog</label>
+              <span class="setting-description">Display welcome dialog on startup</span>
+            </div>
+            <div class="setting-control">
+              <label class="switch">
+                <input 
+                  type="checkbox" 
+                  id="show-welcome" 
+                  checked={tempSettings.showWelcome}
+                  on:click={() => {
+                    tempSettings.showWelcome = !tempSettings.showWelcome;
+                    console.log("Show welcome toggled to:", tempSettings.showWelcome);
+                  }}
                 >
                 <span class="slider round"></span>
               </label>
@@ -640,113 +782,134 @@
     position: relative;
   }
   
-  .enhanced-slider {
-    -webkit-appearance: none;
+  /* Voice settings specific styles */
+  .voice-setting-item {
+    flex-direction: column;
+    align-items: stretch;
+    padding-bottom: 28px;
+  }
+  
+  .voice-setting-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
     width: 100%;
-    height: 8px;
-    border-radius: 10px;
-    background: #e5e7eb;
-    outline: none;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
   }
   
-  .enhanced-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: #3b82f6;
-    cursor: pointer;
-    box-shadow: 0 0 2px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.15);
-    border: 2px solid #ffffff;
-    transition: all 0.2s ease;
-    margin-top: -8px;
+  .voice-setting-header label {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text-primary, #334155);
+    margin-bottom: 4px;
+    display: block;
   }
   
-  .enhanced-slider::-moz-range-thumb {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: #3b82f6;
-    cursor: pointer;
-    box-shadow: 0 0 2px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.15);
-    border: 2px solid #ffffff;
-    transition: all 0.2s ease;
+  .voice-setting-header .setting-description {
+    font-size: 14px;
+    color: var(--color-text-secondary, #64748b);
+    margin-top: 0;
   }
   
-  .enhanced-slider::-webkit-slider-runnable-track {
-    height: 8px;
-    border-radius: 10px;
-    background: #e5e7eb;
-  }
-  
-  .enhanced-slider::-moz-range-track {
-    height: 8px;
-    border-radius: 10px;
-    background: #e5e7eb;
-  }
-  
-  .enhanced-slider:hover::-webkit-slider-thumb {
-    transform: scale(1.1);
-    box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), 0 3px 8px rgba(0, 0, 0, 0.2);
-  }
-  
-  .enhanced-slider:hover::-moz-range-thumb {
-    transform: scale(1.1);
-    box-shadow: 0 0 4px rgba(59, 130, 246, 0.3), 0 3px 8px rgba(0, 0, 0, 0.2);
-  }
-  
-  .enhanced-slider:active::-webkit-slider-thumb {
-    transform: scale(1.15);
-    box-shadow: 0 0 6px rgba(59, 130, 246, 0.4), 0 4px 10px rgba(0, 0, 0, 0.25);
-  }
-  
-  .enhanced-slider:active::-moz-range-thumb {
-    transform: scale(1.15);
-    box-shadow: 0 0 6px rgba(59, 130, 246, 0.4), 0 4px 10px rgba(0, 0, 0, 0.25);
+  .slider-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
   }
   
   .range-value-indicator {
     font-size: 16px;
     font-weight: 600;
     color: #3b82f6;
-    min-width: 48px;
+    min-width: 40px;
     text-align: right;
-    transition: all 0.2s ease;
   }
   
-  /* Custom track fill effect */
+  /* Enhanced slider - exactly matching image */
+  .enhanced-slider {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 100% !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+    background: #e5e7eb !important;
+    outline: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    cursor: pointer !important;
+    position: relative !important;
+  }
+  
+  .enhanced-slider::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    background: #3b82f6 !important;
+    cursor: pointer !important;
+    margin-top: -6px !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  
+  .enhanced-slider::-moz-range-thumb {
+    width: 16px !important;
+    height: 16px !important;
+    border-radius: 50% !important;
+    background: #3b82f6 !important;
+    cursor: pointer !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  
   .enhanced-slider::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #e5e7eb 0);
-    height: 8px;
-    border-radius: 10px;
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0.5) * 100%), #e5e7eb 0) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
   }
   
   .enhanced-slider::-moz-range-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #e5e7eb 0);
-    height: 8px;
-    border-radius: 10px;
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0.5) * 100%), #e5e7eb 0) !important;
+    height: 4px !important;
+    border-radius: 2px !important;
   }
   
-  /* Dark mode adjustments */
+  .dark-theme .enhanced-slider {
+    background: #374151 !important;
+  }
+  
   .dark-theme .enhanced-slider::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #374151 0);
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0.5) * 100%), #374151 0) !important;
   }
   
   .dark-theme .enhanced-slider::-moz-range-track {
-    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0%) * 100%), #374151 0);
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 calc(var(--value, 0.5) * 100%), #374151 0) !important;
+  }
+  
+  .slider-wrapper {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    width: 100% !important;
+    background: transparent !important;
+  }
+  
+  .range-value-indicator {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: #3b82f6 !important;
+    min-width: 40px !important;
+    text-align: right !important;
   }
   
   .dark-theme .range-value-indicator {
-    color: #60a5fa;
-  }
-  
-  /* Add some JS to make the track fill work correctly */
-  :global(.enhanced-slider) {
-    position: relative;
+    color: #60a5fa !important;
   }
   
   /* Toggle switch */
@@ -803,6 +966,15 @@
     transform: translateX(30px);
   }
   
+  /* Round sliders */
+  .slider.round {
+    border-radius: 30px;
+  }
+  
+  .slider.round:before {
+    border-radius: 50%;
+  }
+  
   /* Keep hover and press effect styles */
   .switch:hover .slider:before {
     box-shadow: 0 0 0 4px rgba(203, 213, 225, 0.3);
@@ -819,6 +991,15 @@
   
   .switch:active input:checked + .slider:before {
     left: -2px;
+  }
+  
+  /* Dark theme styles for toggle switches */
+  .dark-theme input:checked + .slider {
+    background-color: var(--color-button-primary, #60a5fa);
+  }
+  
+  .dark-theme .slider {
+    background-color: var(--color-bg-accent, #374151);
   }
   
   /* Buttons */
@@ -934,70 +1115,37 @@
     }
   }
   
-  /* Voice settings specific styles */
-  .voice-setting-item {
-    flex-direction: column;
-    align-items: stretch;
-    padding-bottom: 24px;
-  }
-  
-  .voice-setting-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    width: 100%;
-  }
-  
-  .voice-setting-header label {
-    margin-bottom: 2px;
-    font-size: 17px;
+  /* Auto-announce button */
+  .auto-announce-btn {
+    padding: 8px 16px;
+    min-width: 60px;
+    border-radius: 8px;
+    font-size: 14px;
     font-weight: 600;
-    color: var(--color-text-primary, #334155);
-  }
-  
-  .voice-setting-header .setting-description {
-    font-size: 13px;
-    color: var(--color-text-secondary, #64748b);
-    margin-top: 2px;
-  }
-  
-  .slider-container {
-    padding: 8px 0;
-    position: relative;
-    width: 100%;
-  }
-  
-  .indicator-container {
-    background-color: #e0e8ff;
-    border-radius: 6px;
-    padding: 4px 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    cursor: pointer;
     transition: all 0.2s ease;
+    border: 1px solid var(--color-border, #e2e8f0);
+    background-color: var(--color-bg-accent, #f1f5f9);
+    color: var(--color-text-primary, #1e293b);
   }
   
-  .indicator-container:hover {
-    background-color: #d0dcff;
+  .auto-announce-btn.enabled {
+    background-color: var(--color-button-primary, #3b82f6);
+    color: white;
+    border-color: var(--color-button-primary, #3b82f6);
   }
   
-  .range-value-indicator {
-    font-size: 16px;
-    font-weight: 600;
-    color: #3b82f6;
-    min-width: 48px;
-    text-align: center;
-    transition: all 0.2s ease;
+  .auto-announce-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
   
-  .slider-ticks {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 6px;
-    padding: 0 10px;
-    font-size: 12px;
-    color: var(--color-text-secondary, #64748b);
+  .auto-announce-btn:active {
+    transform: translateY(0);
+  }
+  
+  /* Remove the old toggle button styles */
+  .toggle-btn {
+    display: none;
   }
 </style> 
