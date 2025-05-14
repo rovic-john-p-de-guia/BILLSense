@@ -1,0 +1,760 @@
+/* CSS Variables for theming */
+:root {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f8fafc;
+  --color-bg-accent: #f1f5f9;
+  --color-text-primary: #1e293b;
+  --color-text-secondary: #64748b;
+  --color-text-accent: #3b82f6;
+  --color-border: #e2e8f0;
+  --color-shadow: rgba(0, 0, 0, 0.1);
+  --color-button-primary: #3b82f6;
+  --color-button-primary-hover: #2563eb;
+  --color-button-secondary: #f1f5f9;
+  --color-button-secondary-hover: #e2e8f0;
+  --color-card-bg: #ffffff;
+  --color-success: #10b981;
+  --color-error: #ef4444;
+  --color-header-bg: #ffffff;
+  --color-header-border: #e2e8f0;
+  --color-nav-active: #3b82f6;
+  --color-nav-hover: #2563eb;
+  /* Adding additional color variables */
+  --color-highlight: rgba(59, 130, 246, 0.1);
+  --color-overlay: rgba(255, 255, 255, 0.8);
+  --color-divider: #e2e8f0;
+  --color-backdrop: rgba(0, 0, 0, 0.5);
+  --color-scrollbar: #cbd5e1;
+  --color-transition-mask: rgba(255, 255, 255, 0.95);
+}
+
+/* Dark theme variables - true black and gray theme */
+.dark-theme {
+  --color-bg-primary: #121212;
+  --color-bg-secondary: #000000;
+  --color-bg-accent: #1e1e1e;
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #a0a0a0;
+  --color-text-accent: #3b82f6;
+  --color-border: #333333;
+  --color-shadow: rgba(0, 0, 0, 0.7);
+  --color-button-primary: #3b82f6;
+  --color-button-primary-hover: #5c9aff;
+  --color-button-secondary: #2a2a2a;
+  --color-button-secondary-hover: #3d3d3d;
+  --color-card-bg: #1e1e1e;
+  --color-success: #2ecc71;
+  --color-error: #e74c3c;
+  --color-header-bg: #000000;
+  --color-header-border: #333333;
+  --color-nav-active: #3b82f6;
+  --color-nav-hover: #5c9aff;
+  /* Adding additional dark color variables */
+  --color-highlight: rgba(59, 130, 246, 0.15);
+  --color-overlay: rgba(0, 0, 0, 0.8);
+  --color-divider: #333333;
+  --color-backdrop: rgba(0, 0, 0, 0.8);
+  --color-scrollbar: #333333;
+  --color-transition-mask: rgba(0, 0, 0, 0.95);
+}
+
+/* Add transition to the entire page for smoother theme changes */
+html, body {
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Basic elements */
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.container {
+  background-color: var(--color-bg-primary);
+}
+
+/* Header styling */
+.app-header {
+  background-color: var(--color-header-bg);
+  border-bottom: 1px solid var(--color-header-border);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.logo-text h1 {
+  color: var(--color-text-primary);
+}
+
+.logo-subtitle {
+  color: var(--color-text-secondary);
+}
+
+/* Navigation */
+.main-nav ul li a {
+  color: var(--color-text-secondary);
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+.main-nav ul li a:hover {
+  color: var(--color-nav-hover);
+}
+
+.main-nav ul li a.active {
+  color: var(--color-nav-active);
+  border-bottom-color: var(--color-nav-active);
+}
+
+/* Cards and containers */
+.method-card,
+.currency-card,
+.camera-container,
+.upload-container,
+.result-card {
+  background-color: var(--color-card-bg);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 6px var(--color-shadow);
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.method-card-description,
+.currency-denomination {
+  color: var(--color-text-secondary);
+}
+
+/* Buttons */
+.method-button,
+.btn-primary {
+  background-color: var(--color-button-primary);
+  color: white;
+  transition: background-color 0.3s ease, filter 0.2s ease, box-shadow 0.3s ease, transform 0.2s ease;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 12px 20px;
+  box-shadow: 0 4px 6px rgba(99, 102, 241, 0.25);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.method-button:hover,
+.btn-primary:hover {
+  background-color: var(--color-button-primary-hover);
+  box-shadow: 0 6px 12px rgba(99, 102, 241, 0.3);
+  transform: translateY(-2px);
+}
+
+.method-button:active,
+.btn-primary:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);
+}
+
+.btn-secondary {
+  background-color: var(--color-button-secondary);
+  color: var(--color-text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease, filter 0.2s ease, box-shadow 0.3s ease, transform 0.2s ease;
+  font-weight: 500;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-radius: 10px;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-button-secondary-hover);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* Mobile menu toggle */
+.mobile-menu-toggle span {
+  background-color: var(--color-text-primary);
+  transition: background-color 0.3s ease;
+}
+
+/* Add additional dark theme styles for specific elements */
+.dark-theme .result-card,
+.dark-theme .upload-container,
+.dark-theme .camera-container,
+.dark-theme .method-card,
+.dark-theme .currency-card,
+.dark-theme .dropzone,
+.dark-theme .camera-preview-container,
+.dark-theme .mobile-menu {
+  background-color: var(--color-card-bg);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+.dark-theme .app-header,
+.dark-theme .modal-header,
+.dark-theme .modal-footer {
+  background-color: var(--color-header-bg);
+  border-color: var(--color-header-border);
+}
+
+.dark-theme .logo-text h1,
+.dark-theme h1, 
+.dark-theme h2, 
+.dark-theme h3,
+.dark-theme .section-title,
+.dark-theme .result-title,
+.dark-theme .camera-title,
+.dark-theme .upload-title {
+  color: var(--color-text-primary);
+}
+
+.dark-theme .logo-subtitle,
+.dark-theme .method-card-description,
+.dark-theme .currency-denomination,
+.dark-theme .camera-hint p,
+.dark-theme .camera-tip,
+.dark-theme .dropzone-text,
+.dark-theme .dropzone-subtext {
+  color: var(--color-text-secondary);
+}
+
+.dark-theme .btn-primary {
+  background-color: var(--color-button-primary);
+}
+
+.dark-theme .btn-primary:hover {
+  background-color: var(--color-button-primary-hover);
+}
+
+.dark-theme .btn-secondary {
+  background-color: var(--color-button-secondary);
+  color: var(--color-text-primary);
+}
+
+.dark-theme .btn-secondary:hover {
+  background-color: var(--color-button-secondary-hover);
+}
+
+.dark-theme input,
+.dark-theme select,
+.dark-theme textarea,
+.dark-theme .setting-select {
+  background-color: var(--color-bg-accent);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+/* Additional specific dark mode elements */
+.dark-theme .mobile-menu-toggle span {
+  background-color: var(--color-text-primary);
+}
+
+.dark-theme .camera-guidelines .guideline-frame {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.dark-theme .corner {
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+.dark-theme .camera-mode-toggle {
+  background-color: var(--color-bg-accent);
+  border-color: var(--color-border);
+}
+
+.dark-theme .camera-mode-toggle button {
+  color: var(--color-text-secondary);
+}
+
+.dark-theme .camera-mode-toggle button.active {
+  color: var(--color-text-primary);
+}
+
+.dark-theme .camera-mode-toggle .slider {
+  background-color: var(--color-button-primary);
+}
+
+.dark-theme .guideline-text {
+  color: var(--color-text-primary);
+}
+
+/* Dark mode for modal dialogs */
+.dark-theme .modal {
+  background-color: var(--color-bg-primary);
+  box-shadow: 0 10px 25px var(--color-shadow);
+}
+
+/* Dark mode for scrollbar if visible */
+.dark-theme ::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+.dark-theme ::-webkit-scrollbar-thumb {
+  background-color: var(--color-bg-accent);
+  border: 3px solid var(--color-bg-secondary);
+}
+
+/* Currency card specific fixes for dark mode */
+.dark-theme #currencies-section .currency-card,
+.dark-theme .currency-card {
+  background-color: var(--color-card-bg) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: 0 4px 6px var(--color-shadow) !important;
+}
+
+.dark-theme #currencies-section h2,
+.dark-theme #currencies-section .section-intro,
+.dark-theme #currencies-section .section-title,
+.dark-theme .supported-currencies {
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme #currencies-section p,
+.dark-theme .currency-description {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Target the exchange rate containers */
+.dark-theme .exchange-rate-container,
+.dark-theme [class*='exchange-rate'],
+.dark-theme [class*='currency-details'] {
+  background-color: var(--color-card-bg) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Ensure all dark theme elements use only color properties */
+.dark-theme .result-card,
+.dark-theme .upload-container,
+.dark-theme .camera-container,
+.dark-theme .method-card,
+.dark-theme .currency-card,
+.dark-theme .dropzone,
+.dark-theme .camera-preview-container,
+.dark-theme .mobile-menu {
+  background-color: var(--color-card-bg) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Fix for main content sections in dark mode */
+.dark-theme #home-section,
+.dark-theme #currencies-section,
+.dark-theme main,
+.dark-theme .main-content,
+.dark-theme .content-area,
+.dark-theme .container,
+.dark-theme [class*='content'] {
+  background-color: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Target the main heading and descriptive text */
+.dark-theme .supported-currencies-heading,
+.dark-theme .supported-currencies-description {
+  color: var(--color-text-primary) !important;
+}
+
+/* Handle specific elements in the currency section */
+.dark-theme .currency-denomination,
+.dark-theme .banknote-value,
+.dark-theme .coin-value,
+.dark-theme [class*='pill'],
+.dark-theme [class*='tag'],
+.dark-theme [class*='badge'] {
+  background-color: var(--color-bg-accent) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Fix for the PHP/currency buttons and exchange rate values */
+.dark-theme [class*='currency-value'],
+.dark-theme [class*='exchange-value'],
+.dark-theme .currency-code,
+.dark-theme .currency-info,
+.dark-theme .exchange-rate {
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme [class*='rate-value'],
+.dark-theme .exchange-amount {
+  color: var(--color-text-accent) !important;
+}
+
+/* Force dark background for the body */
+body.dark-theme {
+  background-color: var(--color-bg-primary) !important;
+}
+
+/* Dark background for html and body */
+html.dark-theme,
+body.dark-theme {
+  background-color: var(--color-bg-primary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Target outer containers for dark background */
+.dark-theme .app-root,
+.dark-theme #svelte,
+.dark-theme #app,
+.dark-theme div[id*="root"],
+.dark-theme div[id*="app"],
+.dark-theme div[class*="app"],
+.dark-theme div[class*="container"],
+.dark-theme div[class*="wrapper"],
+.dark-theme div[class*="layout"] {
+  background-color: var(--color-bg-primary) !important;
+}
+
+/* Fix transitions to ensure they don't change layout */
+.dark-theme .transition-mask {
+  background-color: var(--color-transition-mask) !important;
+}
+
+/* Fix dropzone hover state in dark mode */
+.dark-theme .dropzone.dragover {
+  background-color: var(--color-bg-accent) !important;
+  border-color: var(--color-text-accent) !important;
+}
+
+/* Fix workflow progress indicators */
+.dark-theme .workflow-progress,
+.dark-theme .progress-container {
+  background-color: var(--color-bg-secondary) !important;
+}
+
+.dark-theme .progress-step {
+  color: var(--color-text-secondary) !important;
+}
+
+.dark-theme .progress-step.active,
+.dark-theme .progress-step.complete {
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme .progress-step .step-icon {
+  background-color: var(--color-bg-accent) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme .progress-step.active .step-icon,
+.dark-theme .progress-step.complete .step-icon {
+  background-color: var(--color-button-primary) !important;
+  color: white !important;
+}
+
+.dark-theme .progress-line {
+  background-color: var(--color-border) !important;
+}
+
+.dark-theme .progress-line.active {
+  background-color: var(--color-button-primary) !important;
+}
+
+/* Fix header in dark mode */
+.dark-theme .app-header,
+.dark-theme header,
+html.dark-theme .app-header,
+body.dark-theme .app-header {
+  background-color: var(--color-header-bg) !important;
+  border-color: var(--color-header-border) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Target header content */
+.dark-theme .header-content,
+.dark-theme .logo-container,
+.dark-theme .nav-container,
+.dark-theme .logo {
+  background-color: var(--color-header-bg) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Fix for the title in the header */
+.dark-theme .logo-text h1 {
+  color: var(--color-text-primary) !important;
+}
+
+/* Ensure logo background is properly styled */
+.dark-theme .logo-icon {
+  background-color: transparent !important;
+}
+
+/* Fix navigation links in dark mode */
+.dark-theme .main-nav,
+.dark-theme .main-nav ul,
+.dark-theme .main-nav ul li {
+  background-color: var(--color-header-bg) !important;
+}
+
+/* Navigation item styling in dark mode */
+.dark-theme .main-nav ul li a.active {
+  color: var(--color-nav-active) !important;
+  border-bottom-color: var(--color-nav-active) !important;
+}
+
+/* Ultimate override for header in dark mode with high specificity */
+html.dark-theme body .app-header,
+body.dark-theme .app-header,
+html[class*="dark"] body .app-header,
+.dark-theme .app-header,
+.dark-theme header,
+body.dark-theme header.app-header,
+html.dark-theme body header.app-header,
+html.dark-theme body div header.app-header,
+.dark-theme div.container header,
+.dark-theme div.container > header {
+  background-color: var(--color-header-bg) !important; 
+  background: var(--color-header-bg) !important;
+  border-bottom-color: var(--color-header-border) !important;
+  color: var(--color-text-primary) !important;
+  box-shadow: none !important;
+}
+
+/* Add specific styling for header links */
+.dark-theme .app-header a,
+.dark-theme header a,
+.dark-theme .main-nav a,
+html.dark-theme .app-header a,
+html.dark-theme .main-nav a {
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme .app-header a:hover,
+.dark-theme .main-nav a:hover {
+  color: var(--color-text-accent) !important;
+}
+
+/* Add transitions to color and background-color for smooth theme switching */
+* {
+  transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Ensure all text elements use the correct colors */
+.dark-theme p,
+.dark-theme span,
+.dark-theme h1,
+.dark-theme h2,
+.dark-theme h3,
+.dark-theme h4,
+.dark-theme h5,
+.dark-theme h6,
+.dark-theme li,
+.dark-theme label,
+.dark-theme input,
+.dark-theme select,
+.dark-theme textarea,
+.dark-theme button:not(.btn-primary):not(.method-button) {
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme .text-secondary,
+.dark-theme .text-muted,
+.dark-theme small,
+.dark-theme .small-text,
+.dark-theme .hint,
+.dark-theme .help-text,
+.dark-theme [class*='hint'],
+.dark-theme [class*='muted'],
+.dark-theme [class*='secondary'],
+.dark-theme [class*='help'] {
+  color: var(--color-text-secondary) !important;
+}
+
+.dark-theme a:not(.btn-primary):not(.method-button),
+.dark-theme .link,
+.dark-theme [class*='link'],
+.dark-theme .accent-text,
+.dark-theme [class*='accent'] {
+  color: var(--color-text-accent) !important;
+}
+
+/* Add specific font color overrides for elements that might have hardcoded colors */
+.dark-theme .form-label,
+.dark-theme .input-label,
+.dark-theme .form-control,
+.dark-theme .currency-value,
+.dark-theme .currency-code,
+.dark-theme .method-card-title,
+.dark-theme .result-title,
+.dark-theme .section-title,
+.dark-theme .subsection-title,
+.dark-theme [class*='title'],
+.dark-theme [class*='heading'] {
+  color: var(--color-text-primary) !important;
+}
+
+.dark-theme .method-card-description,
+.dark-theme .result-description,
+.dark-theme .section-description,
+.dark-theme .subsection-description,
+.dark-theme [class*='description'],
+.dark-theme [class*='subtitle'] {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Target any inline <strong> or <b> elements */
+.dark-theme strong,
+.dark-theme b {
+  color: var(--color-text-primary) !important;
+}
+
+/* Enhanced Toggle Switch Styles */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 58px;
+  height: 30px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-bg-accent, #cbd5e1);
+  transition: .4s;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input:checked + .slider {
+  background-color: var(--color-button-primary, #3b82f6);
+  box-shadow: inset 0 2px 4px rgba(59, 130, 246, 0.3);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--color-button-primary, #3b82f6), inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+input:checked + .slider:before {
+  transform: translateX(28px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider.round {
+  border-radius: 30px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* Add an active state indication for switches */
+input:checked + .slider:after {
+  position: absolute;
+  content: "";
+  height: 10px;
+  width: 10px;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background-color: rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+}
+
+/* Enhanced method button styles */
+.method-button {
+  padding: 14px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: linear-gradient(135deg, var(--color-button-primary) 0%, var(--color-button-primary-hover) 100%);
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3), 0 1px 2px rgba(99, 102, 241, 0.2);
+  border: none;
+  border-radius: 10px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, box-shadow;
+  position: relative;
+  overflow: hidden;
+}
+
+.method-button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 15px rgba(99, 102, 241, 0.35), 0 1px 2px rgba(99, 102, 241, 0.2);
+  background: linear-gradient(135deg, var(--color-button-primary-hover) 0%, var(--color-button-primary) 100%);
+}
+
+.method-button:active {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(99, 102, 241, 0.25);
+}
+
+/* Add shine effect to buttons */
+.method-button::before,
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transition: left 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.method-button:hover::before,
+.btn-primary:hover::before {
+  left: 100%;
+}
+
+/* Dark theme enhancements for buttons */
+.dark-theme .method-button,
+.dark-theme .btn-primary {
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4), 0 1px 2px rgba(59, 130, 246, 0.3);
+}
+
+.dark-theme .method-button:hover,
+.dark-theme .btn-primary:hover {
+  box-shadow: 0 6px 15px rgba(59, 130, 246, 0.45), 0 1px 2px rgba(59, 130, 246, 0.3);
+}
+
+.dark-theme .btn-secondary {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.dark-theme .btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Enhanced animation for buttons with better visual feedback */
+.method-button:active,
+.btn-primary:active,
+.btn-secondary:active {
+  animation: button-press 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes button-press {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+} 

@@ -429,4 +429,41 @@
     border-radius: 6px;
     text-align: left;
   }
+
+  .form-control {
+    background-color: var(--color-bg-primary, white);
+  }
+
+  .converter-label {
+    color: var(--color-text-secondary, #718096);
+  }
+
+  .rate-value {
+    color: var(--color-text-accent, #e53e3e);
+  }
+
+  .rate-info {
+    color: var(--color-text-secondary, #718096);
+  }
+
+  .from-amount {
+    color: var(--color-text-primary, #2d3748);
+  }
+
+  .equals {
+    color: var(--color-text-secondary, #718096);
+  }
+
+  .to-amount {
+    color: var(--color-text-secondary, #a0aec0);
+  }
+
+  .rate-timestamp {
+    color: var(--color-text-secondary, #a0aec0);
+  }
+
+  .swap-button {
+    color: var(--color-text-secondary, #718096);
+    background-color: var(--color-bg-accent, #f7fafc);
+  }
 </style> 

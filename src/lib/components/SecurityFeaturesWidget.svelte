@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { slide } from 'svelte/transition';
   export let features: string[] = [];
   export let currency: string = "Unknown";
   

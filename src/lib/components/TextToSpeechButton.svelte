@@ -78,16 +78,16 @@
   .tts-button {
     display: flex;
     align-items: center;
-    background-color: #3b82f6;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 16px;
-    cursor: pointer;
-    transition: all 0.2s ease;
+    justify-content: center;
     gap: 8px;
-    font-size: 14px;
+    padding: 8px 12px;
+    border-radius: 8px;
     font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+    border: none;
+    background-color: var(--color-button-primary, #3b82f6);
+    color: white;
   }
   
   .tts-button.icon-only {
@@ -99,13 +99,12 @@
   }
   
   .tts-button:hover {
-    background-color: #2563eb;
-    transform: translateY(-2px);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    background-color: var(--color-button-primary-hover, #2563eb);
   }
   
   .tts-button:active {
-    transform: translateY(0);
+    transform: scale(0.98);
+    background-color: var(--color-button-primary-hover, #4f46e5);
   }
   
   .tts-button:disabled {
@@ -183,5 +182,15 @@
     100% {
       box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
     }
+  }
+  
+  .waveform-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    background-color: var(--color-bg-primary, white);
   }
 </style> 

@@ -30,8 +30,17 @@ The app can detect the following currencies:
 
 1. Clone the repository
 2. Install dependencies with `npm install`
-3. Run the development server with `npm run dev`
-4. Open your browser to the URL shown in the terminal
+3. Copy `.env.example` to `.env` and add your API keys
+4. Run the development server with `npm run dev`
+5. Open your browser to the URL shown in the terminal
+
+## Environment Setup
+
+The application uses environment variables to securely store API keys and other sensitive information. These are accessed through SvelteKit's `$env` module and never exposed to the client directly.
+
+Required environment variables:
+- `EXCHANGE_RATE_API_KEY`: API key for the Exchange Rate API
+- `JWT_SECRET`: Secret key for JWT token generation (for future authentication)
 
 ## Usage
 
