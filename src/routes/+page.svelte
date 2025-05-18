@@ -11,6 +11,7 @@
   let extractedText: string = "No text detected";
   let currencyValue: string = "Unknown";
   let billAmount: string = "Unknown";
+  let billDetails: string = ""; // Store bill series information
   let stream: MediaStream | null = null;
   let processing: boolean = false;
   let puterLoaded: boolean = false;
@@ -885,7 +886,7 @@
       } else {
         // Probably a bill - use standard detection
         const options = {
-          prompt: "This is a Philippine currency bill. Identify all text including 'BANGKO SENTRAL NG PILIPINAS' and denomination indicators."
+          prompt: "This is a Philippine currency bill. Identify all text including 'BANGKO SENTRAL NG PILIPINAS', series indicators like 'NEW GENERATION CURRENCY' or 'NGC', denomination numbers, Filipino heroes like Quezon, Aquino, Bonifacio, and text in Filipino. Look for 'SANLIBONG PISO' or '1000' which indicates a 1000 peso bill. Look for serial numbers typically starting with letters like 'AA' or similar patterns. For newer polymer bills, look for transparent windows, blue/teal coloring, and 'POLYMER' text."
         };
         
         const result = await puter.ai.img2txt(imageSrc, options);
@@ -894,6 +895,11 @@
         
         // Use your existing currency detection
         detectCurrencyAndAmount(extractedText);
+        
+        // Double-check for Philippine Peso 1000 bill visual patterns
+        if (currencyValue === "PHP (Philippine Peso)" && billAmount !== "1000") {
+          checkForPhilippine1000Visual(imageSrc);
+        }
       }
       
       // Set target currency based on user preference after detection
@@ -1111,13 +1117,17 @@
   function detectCurrencyAndAmount(text: string): void {
     let currency = "Unknown";
     let amount = "Unknown";
+    let billSeries = "Unknown"; // To identify if it's a new or old series bill
 
     console.log("Starting currency detection for text:", text);
+    
+    // Normalize the text for more consistent detection
+    const normalizedText = text.replace(/\s+/g, ' ').trim().toUpperCase();
     
     // Currency detection
     const currencyPatterns: Record<string, RegExp> = {
       "USD (US Dollar)": /DOLLARS|UNITED STATES OFAMERICA|FEDERAL RESERVE NOTE/i,
-      "PHP (Philippine Peso)": /PISO|PILIPINAS|BANGKO SENTRAL|REPUBLIKA NG|SANLI(B|L)IB(S|G)|PHILIPPINES/i,
+      "PHP (Philippine Peso)": /PISO|PILIPINAS|BANGKO SENTRAL|REPUBLIKA NG|SANLI(B|L)(O|I)(NG)? PIS(O|A)|PHILIPPINES/i,
       "EUR (Euro)": /EURO|ECB|BCE/i,
       "GBP (British Pound)": /POUNDS|BANK OF ENGLAND/i,
       "MXN (Mexican Peso)": /PESOS|BANCO DE MEXICO/i,
@@ -1146,10 +1156,47 @@
         text.includes("SANDAAN") ||
         text.includes("LIBO") ||
         text.includes("KH") || // Serial number prefix on PHP bills
-        text.includes("SANLIBONG PISO") // Specifically for 1000 peso bill
+        text.includes("SANLIBONG PISO") || // Specifically for 1000 peso bill
+        text.match(/[A-Z]{2}\d{6}/i) // Serial number pattern on PHP bills
     )) {
       console.log("Detected Philippine Peso through special case patterns");
       currency = "PHP (Philippine Peso)";
+    }
+
+    // Detect if it's a new or old series Philippine bill
+    if (currency === "PHP (Philippine Peso)") {
+      if (text.match(/NEW GENERATION CURRENCY|NGC|ENHANCED NEW GENERATION CURRENCY|ENGC/i)) {
+        billSeries = "New Generation";
+        console.log("Detected new generation Philippine bill");
+      } else if (text.match(/BSP SERIES|ENGLISH SERIES|PILIPINO SERIES|ABL SERIES/i)) {
+        billSeries = "Old Series";
+        console.log("Detected old series Philippine bill");
+      } else {
+        // Look for specific features or colors to identify series
+        const yearsMatch = text.match(/\b(19\d\d|20\d\d)\b/);
+        if (yearsMatch) {
+          const year = parseInt(yearsMatch[1]);
+          if (year >= 2010) {
+            billSeries = "New Generation";
+            console.log(`Detected likely new generation bill from year ${year}`);
+          } else if (year < 2010) {
+            billSeries = "Old Series";
+            console.log(`Detected likely old series bill from year ${year}`);
+          }
+        }
+        
+        // Check for specific features of new generation bills
+        if (text.match(/MAKA-DIYOS|MAKAKALIKASAN|MAKABANSA|MAKA-TAO/i)) {
+          billSeries = "New Generation";
+          console.log("Detected New Generation Currency from core values text");
+        }
+        
+        // Check for unique features on 1000-peso polymer bill (newest)
+        if (text.match(/POLYMER|BLUE MORPHO BUTTERFLY|SAMPUNG DAAN/i)) {
+          billSeries = "Enhanced New Generation (Polymer)";
+          console.log("Detected newest polymer Philippine bill");
+        }
+      }
     }
 
     // Amount detection
@@ -1183,34 +1230,112 @@
       
       // Third pass: For Philippine Peso specifically, look for text patterns indicating denomination
       if (currency === "PHP (Philippine Peso)" && amount === "Unknown") {
-        if (text.match(/ONE THOUSAND|1000|SANLIBO/i)) amount = "1000";
-        else if (text.match(/FIVE HUNDRED|500|LIMANDAA/i)) amount = "500";
-        else if (text.match(/TWO HUNDRED|200|DALAWANDAA/i)) amount = "200";
-        else if (text.match(/ONE HUNDRED|100|SANDAA/i)) amount = "100";
-        else if (text.match(/FIFTY|50|LIMAMPU/i)) amount = "50";
-        else if (text.match(/TWENTY|20|DALAWAMPU/i)) amount = "20";
+        // Match both English and Filipino terminology on both new and old bills
+        if (text.match(/ONE THOUSAND|1000|SANLIBO|ISANG LIBO|SAMPUNG DAAN/i)) {
+          amount = "1000";
+        } else if (text.match(/FIVE HUNDRED|500|LIMANDAAN|LIMANG DAAN/i)) {
+          amount = "500"; 
+        } else if (text.match(/TWO HUNDRED|200|DALAWANDAAN|DALAWANG DAAN/i)) {
+          amount = "200";
+        } else if (text.match(/ONE HUNDRED|100|SANDAAN|ISANG DAAN/i)) {
+          amount = "100";
+        } else if (text.match(/FIFTY|50|LIMAMPU|LIMANG PU/i)) {
+          amount = "50";
+        } else if (text.match(/TWENTY|20|DALAWAMPU|DALAWANG PU/i)) {
+          amount = "20";
+        } else if (text.match(/TEN|10|SAMPU/i)) {
+          amount = "10";
+        } else if (text.match(/FIVE|5|LIMA/i)) {
+          amount = "5";
+        }
         
         if (amount !== "Unknown") {
           console.log(`Detected PHP denomination from text pattern: ${amount}`);
         }
       }
       
-      // Special case for 1000 Philippine Peso - Visual pattern match 
+      // Fourth pass: For Philippine Peso - check for person/hero on the bill to determine denomination
+      if (currency === "PHP (Philippine Peso)" && amount === "Unknown") {
+        // Map heroes/persons to denominations
+        if (text.match(/JOSE RIZAL|RIZAL/i)) {
+          amount = "1";
+          console.log("Detected 1 peso note from Rizal reference");
+        } else if (text.match(/MANUEL L\.? QUEZON|QUEZON/i)) {
+          amount = "20";
+          console.log("Detected 20 peso note from Quezon reference");
+        } else if (text.match(/SERGIO OSME(N|NA)|OSME(N|NA)/i)) {
+          amount = "50";
+          console.log("Detected 50 peso note from Osmena reference");
+        } else if (text.match(/MANUEL ROXAS|ROXAS/i)) {
+          amount = "100";
+          console.log("Detected 100 peso note from Roxas reference");
+        } else if (text.match(/DIOSDADO MACAPAGAL|MACAPAGAL/i)) {
+          amount = "200";
+          console.log("Detected 200 peso note from Macapagal reference");
+        } else if (text.match(/BENIGNO AQUINO|NINOY|CORAZON|CORY AQUINO|AQUINO/i)) {
+          amount = "500";
+          console.log("Detected 500 peso note from Aquino reference");
+        } else if (text.match(/JOSE ABAD SANTOS|ABAD SANTOS|VICENTE LIEM DE LA PAZ|JOSEFA LLANES ESCODA|ESCODA/i)) {
+          amount = "1000";
+          console.log("Detected 1000 peso note from Abad Santos, Liem, or Escoda reference");
+        }
+      }
+      
+      // Special case for 1000 Philippine Peso - Visual pattern match with improved patterns
       if (currency === "PHP (Philippine Peso)" && amount === "Unknown") {
         // Check for visual indicators of 1000 Peso bill
-        if (text.includes("1000") || 
-            text.includes("SANLIBO") || 
-            text.includes("LIBO") || 
-            text.match(/SANL([IL])\1B([AO])NG/i)) {
-          console.log("Detected 1000 PHP through visual patterns");
+        if (normalizedText.match(/(\b|^)1000(\b|$)/) || 
+            normalizedText.match(/SANL[I1]BONG P[I1]SO/) || 
+            normalizedText.match(/ONE THOUSAND/) ||
+            normalizedText.match(/[I1]SANG L[I1]BO/) ||
+            normalizedText.match(/SAMPUNG DAAN/) ||
+            normalizedText.match(/SANL[I1][B8]O/) ||
+            // Check for Abad Santos, Vicente Lim and Josefa Escoda (heroes on 1000 PHP)
+            (normalizedText.match(/ABAD SANTOS/) && normalizedText.match(/ESCODA/)) ||
+            // Check for Philippine Eagle (on the 1000 PHP)
+            (normalizedText.match(/PHILIPPINE EAGLE/) && normalizedText.match(/P[I1]S[O0]/))
+        ) {
+          console.log("Detected 1000 PHP through enhanced visual patterns");
           amount = "1000";
         }
+      }
+      
+      // Specific checks for polymer notes (currently only 1000 PHP)
+      if (currency === "PHP (Philippine Peso)" && normalizedText.match(/POLYMER|BLUE MORPHO|BUTTERFLY|TRANSPARENT|W[I1]NDOW/i)) {
+        console.log("Detected polymer note features");
+        // If we detect polymer features, we should double check if it's a 1000 note
+        if (amount === "Unknown" || normalizedText.match(/(\b|^)1(\b|$)/)) {
+          // If amount is unknown or incorrectly detected as "1" due to OCR error on the "1" 
+          // in "1000", but we have polymer features, it's likely a 1000 PHP bill
+          amount = "1000";
+          console.log("Corrected amount to 1000 based on polymer features");
+        }
+        
+        billSeries = "Enhanced New Generation (Polymer)";
+      }
+      
+      // Special pattern for Philippine bills showing just the first digit
+      // For example, 1000 bills sometimes get detected as just "1" if only 
+      // the first digit is clear in the image
+      if (currency === "PHP (Philippine Peso)" && 
+          (amount === "1" || amount === "Unknown") && 
+          (normalizedText.match(/SANLIBONG/i) || normalizedText.match(/LIBO/i))) {
+        console.log("Detected '1' with 'SANLIBONG' or 'LIBO', correcting to 1000 PHP");
+        amount = "1000";
       }
     }
 
     currencyValue = currency;
     billAmount = amount !== "Unknown" ? `${amount}` : "Not detected";
-    console.log(`Final detection - Currency: ${currency}, Amount: ${billAmount}`);
+    
+    // Store the bill series information
+    if (currency === "PHP (Philippine Peso)" && billSeries !== "Unknown") {
+      billDetails = `${billSeries} Series`;
+    } else {
+      billDetails = "";
+    }
+    
+    console.log(`Final detection - Currency: ${currency}, Amount: ${billAmount}, Series: ${billSeries}`);
     
     // Set a relevant target currency based on the detected currency
     const detectedCode = getCurrencyCode(currency);
@@ -1244,12 +1369,17 @@
   function getSecurityFeatures(currency: string): string[] {
     const features: Record<string, string[]> = {
       "PHP (Philippine Peso)": [
-        "Watermark",
-        "Security thread",
+        "Watermark portrait",
+        "Security fibers",
         "Serial number",
         "Optically variable device (OVD)",
-        "Material: Standard paper (older bills) or Polymer (new bills)",
-        "Tactile marks for visually impaired"
+        "Concealed value",
+        "See-through register",
+        "Enhanced value panel",
+        "Tactile marks for visually impaired",
+        "Asymmetric serial numbers (New Generation)",
+        "Intaglio printing (raised ink)",
+        "Fluorescent printing (visible under UV light)"
       ],
       "USD (US Dollar)": [
         "Watermark", 
@@ -1554,15 +1684,7 @@
       }
     }
     
-    // Update the camera mode toggle UI
-    const modeToggle = document.querySelector('.camera-mode-toggle');
-    if (modeToggle) {
-      if (liveScanMode) {
-        modeToggle.classList.add('live-mode');
-      } else {
-        modeToggle.classList.remove('live-mode');
-      }
-    }
+    // Camera mode toggle UI removed
   }
 
   // Add basic scanFrame function to support toggleLiveScan
@@ -1814,6 +1936,59 @@
       }, 100);
     }
   }
+
+  // Add a function to double check for Philippine 1000 peso bill based on visual pattern
+  async function checkForPhilippine1000Visual(imageSrc: string): Promise<void> {
+    // This is a supplemental check specifically for the 1000 PHP bill
+    // which sometimes has text that's hard to extract accurately
+    try {
+      console.log("Running additional visual check for 1000 PHP bill");
+      
+      const puter = (window as any).puter;
+      if (!puter || !puter.ai) {
+        return;
+      }
+      
+      // Use a focused prompt specifically looking for 1000 peso indicators
+      const options = {
+        prompt: "This is a Philippines 1000 piso/peso bill. Look specifically for indicators like '1000', 'SANLIBONG PISO', the blue/teal color pattern, and Philippine eagle/large bird imagery. Is this a 1000 peso bill?"
+      };
+      
+      const result = await puter.ai.img2txt(imageSrc, options);
+      console.log("1000 PHP visual check result:", result);
+      
+      // Check for strong indicators of 1000 peso bill
+      const normalizedText = result.replace(/\s+/g, ' ').trim().toUpperCase();
+      
+      if (
+        normalizedText.includes("1000 PESO") || 
+        normalizedText.includes("1000 PISO") ||
+        normalizedText.includes("SANLIBONG PISO") ||
+        normalizedText.includes("ONE THOUSAND") ||
+        normalizedText.includes("POLYMER 1000") ||
+        (normalizedText.includes("1000") && normalizedText.includes("PHILIPPINES")) ||
+        (normalizedText.includes("YES") && normalizedText.includes("1000"))
+      ) {
+        console.log("Visual confirmation: This is a 1000 PHP bill");
+        currencyValue = "PHP (Philippine Peso)";
+        billAmount = "1000";
+        
+        // Check if it's a polymer bill
+        if (
+          normalizedText.includes("POLYMER") || 
+          normalizedText.includes("TRANSPARENT") ||
+          normalizedText.includes("BLUE MORPHO") ||
+          normalizedText.includes("WINDOW")
+        ) {
+          billDetails = "Enhanced New Generation (Polymer) Series";
+        } else {
+          billDetails = "New Generation Series";
+        }
+      }
+    } catch (error) {
+      console.error("Error in 1000 PHP visual check:", error);
+    }
+  }
 </script>
 
 <svelte:head>
@@ -2054,7 +2229,7 @@
                     </div>
               </div>
             {:else}
-                  <div class="camera-preview-container" in:fade={{ duration: 300 }}>
+                  <div class="camera-feed-container" in:fade={{ duration: 300 }}>
                 <video 
                   bind:this={cameraFeed} 
                   autoplay 
@@ -2063,45 +2238,20 @@
                   class="camera-feed"
                 ></video>
                 
+                <!-- Camera overlay with positioning elements -->
+                <div class="camera-overlay">
                     <!-- Add scanning indicator for live mode -->
-                    <div class="scanning-indicator" class:active={liveScanMode}></div>
-                    
-                    <!-- Enhanced camera guidelines -->
-                <div class="camera-guidelines">
-                      <div class="guideline-frame" class:ready-flash={stream !== null}>
-                        <div class="corner corner-tl"></div>
-                        <div class="corner corner-tr"></div>
-                        <div class="corner corner-bl"></div>
-                        <div class="corner corner-br"></div>
-                      </div>
-                      <div class="guideline-text">Position currency here</div>
-                </div>
-                
-                    <!-- Success animation overlay -->
-                    <div class="detection-success" class:show={showSuccessAnimation}>
-                      <div class="success-checkmark">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </div>
+                    <div class="scanning-indicator" class:active={liveScanMode}>
+                      <div class="pulse"></div>
+                      <span>Scanning...</span>
                     </div>
                     
-                    <!-- Camera mode toggle - new UI -->
-                    <div class="camera-mode-toggle" class:live-mode={liveScanMode}>
-                      <div class="slider"></div>
-                      <button class={!liveScanMode ? 'active' : ''} on:click={() => setCameraMode('photo')}>
-                        Photo
-                      </button>
-                      <button class={liveScanMode ? 'active' : ''} on:click={() => toggleLiveScan()}>
-                        Live Scan
-                      </button>
+                    <!-- Enhanced camera guidelines with responsive positioning -->
+                    <div class="camera-guides">
+                      <span class="positioning-text">Position currency here</span>
                     </div>
                     
-                    <button class="btn-capture" on:click={captureImage} disabled={processing} aria-label="Capture image" class:live-mode={liveScanMode}>
-                  <div class="btn-capture-inner"></div>
-                    </button>
-                    
-                    <!-- Add camera control buttons -->
+                    <!-- Camera controls positioned at the top right -->
                     <div class="camera-controls">
                       <button 
                         class="camera-control-btn" 
@@ -2112,13 +2262,27 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                           <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4"></path>
                         </svg>
-                </button>
+                      </button>
                     </div>
+                    
+                    <!-- Success animation overlay -->
+                    <div class="detection-success" class:show={showSuccessAnimation}>
+                      <div class="success-checkmark">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                    </div>
+                    
+                    <!-- Capture button with responsive sizing -->
+                    <button class="btn-capture" on:click={captureImage} disabled={processing} aria-label="Capture image" class:live-mode={liveScanMode}>
+                    </button>
+                </div>
               </div>
               
               <div class="camera-hint">
                 <p>Position currency bill in view and tap the circle to capture</p>
-                    <p class="camera-tip">For best results, ensure good lighting and hold steady</p>
+                <p class="camera-tip">For best results, ensure good lighting and hold steady</p>
               </div>
             {/if}
           </div>
@@ -2198,6 +2362,32 @@
               <div class="result-value">{billAmount}</div>
               {#if isCoin && coinMatchDetails}
                 <div class="coin-details">{coinMatchDetails}</div>
+              {:else if billAmount !== "Unknown" && billAmount !== "Not detected" && currencyValue !== "Unknown"}
+                <div class="bill-details">
+                  {#if getCurrencyCode(currencyValue) === "PHP"}
+                    {#if !isCoin}
+                      {#if billAmount === "20"}
+                        20 peso Philippine bill
+                      {:else if billAmount === "50"}
+                        50 peso Philippine bill
+                      {:else if billAmount === "100"}
+                        100 peso Philippine bill
+                      {:else if billAmount === "200"}
+                        200 peso Philippine bill
+                      {:else if billAmount === "500"}
+                        500 peso Philippine bill
+                      {:else if billAmount === "1000"}
+                        1000 peso Philippine bill
+                      {:else}
+                        {billAmount} peso Philippine bill
+                      {/if}
+                    {:else}
+                      {billAmount} peso Philippine coin
+                    {/if}
+                  {:else}
+                    {billAmount} {getCurrencyCode(currencyValue)} {isCoin ? 'coin' : 'bill'}
+                  {/if}
+                </div>
               {/if}
             </div>
             
@@ -2313,7 +2503,8 @@
                       <select 
                         id="targetCurrency" 
                         bind:value={targetCurrency}
-                                  class="currency-select clean"
+                        class="currency-select clean"
+                        on:change={refreshExchangeRate}
                       >
                         {#each commonCurrencies as currency}
                           <option value={currency.code} disabled={currency.code === getCurrencyCode(currencyValue)}>
@@ -2409,10 +2600,47 @@
                         <h4>Bill Specifications</h4>
                         <ul class="specs-list">
                           {#if getCurrencyCode(currencyValue) === "PHP"}
-                            <li><strong>Material:</strong> {billAmount === "1000" ? "Polymer" : "Cotton and abaca fibers"}</li>
+                            <li>
+                              <strong>Current Material:</strong> {
+                                billAmount === "1000" || billAmount === "500" || billAmount === "200" ? "Polymer" : 
+                                billDetails?.includes("Polymer") ? "Polymer" :
+                                billDetails?.includes("2022") || billDetails?.includes("New Generation Series 2022") ? "Polymer" : 
+                                "Cotton and abaca fibers"
+                              }
+                            </li>
                             <li><strong>Size:</strong> {billAmount === "20" || billAmount === "50" ? "130mm × 60mm" : 
                                                       billAmount === "100" || billAmount === "200" ? "146mm × 66mm" : 
                                                       billAmount === "500" || billAmount === "1000" ? "160mm × 66mm" : "Varies by denomination"}</li>
+                            {#if billDetails}
+                              <li><strong>Series:</strong> {billDetails}</li>
+                            {/if}
+                            
+                            <!-- Information about both bill types -->
+                            <li class="bill-types-info">
+                              <strong>Bill Types:</strong>
+                              <div class="bill-types-comparison">
+                                <div class="bill-type">
+                                  <span class="bill-type-header">Polymer Bills (New)</span>
+                                  <ul class="bill-type-details">
+                                    <li>Denominations: ₱1000, ₱500, ₱200</li>
+                                    <li>Introduced: 2022-2023</li>
+                                    <li>Features: More durable, water-resistant, enhanced security features</li>
+                                    <li>Tactile marks for the visually impaired</li>
+                                    <li>Can survive accidental washing</li>
+                                  </ul>
+                                </div>
+                                <div class="bill-type">
+                                  <span class="bill-type-header">Paper Bills (Traditional)</span>
+                                  <ul class="bill-type-details">
+                                    <li>Denominations: All values</li> 
+                                    <li>Material: Cotton and abaca fibers</li>
+                                    <li>Traditional security features (watermarks, security thread)</li>
+                                    <li>Still widely circulated</li>
+                                    <li>Being gradually phased out</li>
+                                  </ul>
+                                </div>
+                              </div>
+                            </li>
                           {:else}
                             <li><strong>Material:</strong> Cotton-based paper or polymer</li>
                             <li><strong>Size:</strong> Varies by denomination</li>
@@ -2421,6 +2649,52 @@
                             <li><strong>Value:</strong> {billAmount} {billAmount === "1" ? "unit" : "units"}</li>
                           {/if}
                         </ul>
+                        
+                        <!-- Add styles for bill types comparison -->
+                        <style>
+                          .bill-types-comparison {
+                            display: grid;
+                            grid-template-columns: 1fr 1fr;
+                            gap: 10px;
+                            margin-top: 8px;
+                          }
+                          
+                          .bill-type {
+                            background-color: #f8fafc;
+                            border-radius: 6px;
+                            padding: 8px;
+                            border: 1px solid #e2e8f0;
+                          }
+                          
+                          .bill-type-header {
+                            display: block;
+                            font-weight: 600;
+                            margin-bottom: 6px;
+                            color: #334155;
+                            font-size: 13px;
+                            text-align: center;
+                          }
+                          
+                          .bill-type-details {
+                            margin: 0;
+                            padding-left: 16px;
+                            font-size: 12px;
+                          }
+                          
+                          .bill-type-details li {
+                            margin-bottom: 4px;
+                          }
+                          
+                          @media (max-width: 640px) {
+                            .bill-types-comparison {
+                              grid-template-columns: 1fr;
+                            }
+                            
+                            .bill-type {
+                              margin-bottom: 6px;
+                            }
+                          }
+                        </style>
             </div>
                     </div>
                   {/if}
@@ -2530,6 +2804,12 @@
                             <span class="detection-confidence low">Low confidence</span>
                           {/if}
                         </li>
+                        {#if billDetails && !isCoin}
+                          <li>
+                            <strong>Series:</strong> {billDetails}
+                            <span class="detection-confidence high">Information</span>
+                          </li>
+                        {/if}
                         {#if isCoin && coinMatchDetails}
                           <li>
                             <strong>Type:</strong> {coinMatchDetails}
@@ -3528,9 +3808,10 @@
   
   .image-controls {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: clamp(0.5rem, 2vw, 0.75rem);
+    margin-bottom: 1rem;
   }
   
   .image-control-btn {
@@ -3971,7 +4252,7 @@
   }
   
   /* Add this to your existing styles */
-  .coin-details {
+  .coin-details, .bill-details {
     font-size: 12px;
     color: #6b7280;
     margin-top: 4px;
@@ -5692,6 +5973,498 @@
   
   :global(.dark-theme) .progress-line.active {
     background-color: #3b82f6;
+  }
+
+  /* Responsive camera interface styles */
+  .camera-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  .camera-feed-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    max-height: calc(100vh - 200px);
+    margin: 0 auto;
+    overflow: hidden;
+    border-radius: 12px;
+    background-color: #000;
+  }
+
+  @media (max-width: 768px) {
+    .camera-feed-container {
+      aspect-ratio: 3/4;
+      max-height: calc(100vh - 160px);
+    }
+  }
+
+  .camera-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 1rem;
+  }
+
+  .camera-hint {
+    text-align: center;
+    width: 100%;
+    padding: 0.75rem;
+    margin-top: 1rem;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    border-radius: 8px;
+    color: white;
+    font-size: clamp(0.875rem, 2.5vw, 1rem);
+    line-height: 1.4;
+  }
+
+  @media (max-width: 768px) {
+    .camera-hint {
+      padding: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    
+    .camera-tip {
+      font-size: clamp(0.75rem, 2vw, 0.875rem);
+    }
+  }
+
+  .camera-guides {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(90%, 500px);
+    height: 60%;
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    pointer-events: none;
+  }
+
+  .btn-capture {
+    position: absolute;
+    bottom: 5%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: clamp(3.5rem, 15vw, 5rem);
+    height: clamp(3.5rem, 15vw, 5rem);
+    border-radius: 50%;
+    background-color: white;
+    border: 5px solid rgba(255, 255, 255, 0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 3;
+  }
+
+  .btn-capture::after {
+    content: '';
+    width: 80%;
+    height: 80%;
+    border-radius: 50%;
+    background-color: white;
+    transition: all 0.2s ease;
+  }
+
+  .btn-capture:hover::after {
+    width: 70%;
+    height: 70%;
+  }
+
+  .btn-capture:active::after {
+    width: 60%;
+    height: 60%;
+    background-color: #e0e0e0;
+  }
+
+  .camera-controls {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: clamp(0.5rem, 3vw, 1rem);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: clamp(0.5rem, 2vw, 0.75rem);
+    z-index: 3;
+  }
+
+  .camera-control-btn {
+    width: clamp(2.5rem, 10vw, 3rem);
+    height: clamp(2.5rem, 10vw, 3rem);
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    border: none;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .camera-control-btn:hover {
+    background-color: rgba(0, 0, 0, 0.8);
+  }
+
+  .camera-control-btn svg {
+    width: clamp(1rem, 4vw, 1.5rem);
+    height: clamp(1rem, 4vw, 1.5rem);
+  }
+
+  .camera-mode-toggle {
+    position: absolute;
+    bottom: 5%;
+    right: 5%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    padding: clamp(0.5rem, 1.5vw, 0.75rem);
+    border-radius: 12px;
+    color: white;
+    font-size: clamp(0.75rem, 2vw, 0.875rem);
+    gap: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 3;
+  }
+
+  @media (max-width: 480px) {
+    .camera-mode-toggle {
+      bottom: 5%;
+      right: 2%;
+      padding: 0.5rem;
+    }
+  }
+
+  .mode-icon {
+    width: clamp(1.5rem, 6vw, 2rem);
+    height: clamp(1.5rem, 6vw, 2rem);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .scanning-indicator {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: clamp(0.75rem, 2vw, 0.875rem);
+    display: none;
+  }
+
+  .scanning-indicator.active {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .scanning-indicator .pulse {
+    width: 10px;
+    height: 10px;
+    background-color: #10b981;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0% {
+      transform: scale(0.8);
+      opacity: 0.7;
+    }
+    50% {
+      transform: scale(1.2);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(0.8);
+      opacity: 0.7;
+    }
+  }
+
+  /* Responsive method cards and buttons */
+  .method-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: clamp(1rem, 4vw, 2rem);
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .method-card {
+    border-radius: 12px;
+    padding: clamp(1.5rem, 5vw, 2rem);
+  }
+
+  .method-button {
+    padding: clamp(0.75rem, 2vw, 1rem) clamp(1rem, 3vw, 1.5rem);
+    font-size: clamp(0.875rem, 2.5vw, 1rem);
+  }
+
+  /* Responsive image controls */
+  .image-controls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: clamp(0.5rem, 2vw, 0.75rem);
+    margin-bottom: 1rem;
+  }
+
+  .image-control-btn {
+    width: clamp(2.5rem, 8vw, 3rem);
+    height: clamp(2.5rem, 8vw, 3rem);
+  }
+  
+  /* ... rest of existing styles ... */
+
+  .positioning-text {
+    color: white;
+    font-size: clamp(1rem, 3vw, 1.25rem);
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    text-align: center;
+    white-space: nowrap;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+
+  @media (max-width: 480px) {
+    .positioning-text {
+      font-size: 0.875rem;
+      padding: 0.4rem 0.8rem;
+    }
+  }
+
+  .toggle-button {
+    font-size: clamp(0.7rem, 2vw, 0.8rem);
+    padding: 0.3rem 0.6rem;
+    background-color: rgba(255, 255, 255, 0.2);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 0.3rem;
+  }
+
+  .toggle-button:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .detection-success {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(16, 185, 129, 0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 5;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+  }
+
+  .detection-success.show {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .success-checkmark {
+    background-color: rgba(16, 185, 129, 0.8);
+    border-radius: 50%;
+    width: clamp(60px, 15vw, 100px);
+    height: clamp(60px, 15vw, 100px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    animation: pulse-success 0.8s ease;
+  }
+
+  @keyframes pulse-success {
+    0% {
+      transform: scale(0.5);
+      opacity: 0.5;
+    }
+    70% {
+      transform: scale(1.2);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  .camera-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 12px;
+  }
+
+  .camera-feed.inverted {
+    transform: scaleX(-1);
+  }
+
+  @media (max-width: 768px) {
+    .camera-hint {
+      position: relative;
+      bottom: auto;
+      left: auto;
+      transform: none;
+      width: calc(100% - 2rem);
+      margin: 1rem auto;
+    }
+  }
+
+  /* Additional responsive tweaks */
+  @media (max-height: 700px) {
+    .camera-feed-container {
+      max-height: 60vh;
+    }
+    
+    .camera-hint {
+      margin-top: 0.5rem;
+    }
+    
+    .btn-capture {
+      bottom: 3%;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .camera-controls {
+      gap: 0.3rem;
+      padding: 0.5rem;
+    }
+    
+    .camera-control-btn {
+      width: 2.2rem;
+      height: 2.2rem;
+    }
+    
+    .camera-control-btn svg {
+      width: 1rem;
+      height: 1rem;
+    }
+  }
+
+  /* ... rest of styles ... */
+
+  /* More specific selectors to hide amount and convert button */
+  .converter-input-group,
+  .converter-input,
+  input.amount-input,
+  .converter-label {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .convert-button,
+  button.convert-button,
+  button[on\:click="refreshExchangeRate"] {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* More compact currency information display */
+  .currency-details {
+    padding: 15px !important;
+  }
+
+  .details-header {
+    font-size: 16px !important;
+    margin-bottom: 12px !important;
+    padding-bottom: 8px !important;
+  }
+
+  .details-grid {
+    gap: 10px !important;
+  }
+
+  .detail-item {
+    padding: 12px !important;
+    gap: 10px !important;
+  }
+
+  .detail-content h4 {
+    font-size: 14px !important;
+    margin-bottom: 6px !important;
+  }
+
+  .exchange-rate-container {
+    margin-top: 0 !important;
+  }
+
+  .converter-row {
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    align-items: center !important;
+  }
+
+  .currency-selector-dropdown {
+    max-width: 100% !important;
+  }
+
+  /* Auto-update indicator to replace convert button */
+  .conversion-result {
+    position: relative !important;
+    margin-top: 8px !important;
+  }
+
+  /* Make dropdowns more compact */
+  select.currency-select {
+    padding: 5px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    font-size: 13px !important;
+  }
+
+  /* Hide the swap/arrow button */
+  .converter-swap,
+  button.swap-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
   }
 </style>
   
