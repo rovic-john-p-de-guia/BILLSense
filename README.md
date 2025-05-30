@@ -1,4 +1,4 @@
-# Currency Scanner App
+# Currency Recognition App
 
 A Svelte application that allows users to scan and detect currency type and value from bills using OCR with Puter.js.
 
